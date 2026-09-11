@@ -26,33 +26,27 @@ A high-performance, privacy-first web application that compresses **Images (JPG,
 
 ---
 
-## Opening in Visual Studio Code
+## Getting Started
 
-### Option 1: From the terminal
+### 1. Clone the repository
 ```bash
-code C:\Users\perso\.gemini\antigravity\scratch\client-file-compressor
+git clone https://github.com/<your-username>/client-file-compressor.git
+cd client-file-compressor
 ```
 
-### Option 2: From VS Code UI
-1. Launch **VS Code**.
-2. Click **File -> Open Folder...** (or press `Ctrl+K Ctrl+O`).
-3. Navigate to and select:
-   `C:\Users\perso\.gemini\antigravity\scratch\client-file-compressor`
-
----
-
-## Running Locally
-
-In VS Code's integrated terminal (`Ctrl + \``):
-
+### 2. Install dependencies
 ```bash
-# 1. Start the Vite development server
+npm install
+```
+
+### 3. Run development server
+```bash
 npm run dev
-
-# 2. Open the URL shown (usually http://localhost:5173) in your browser
 ```
 
-To build for production:
+Open `http://localhost:5173` in your browser.
+
+### 4. Build for production
 ```bash
 npm run build
 ```
@@ -86,3 +80,9 @@ client-file-compressor/
 ├── package.json
 └── vite.config.ts
 ```
+
+---
+
+## License
+
+MIT License — free for personal and commercial use.
