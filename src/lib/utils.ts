@@ -22,11 +22,19 @@ export function calculateSavings(original: number, compressed: number): { bytes:
   return { bytes, percent };
 }
 
-export function downloadFile(blob: Blob, originalName: string, prefix = 'compressed_'): void {
+export function getOutputFilename(originalName: string, outputFormat?: string, prefix = 'compressed_'): string {
   const extIndex = originalName.lastIndexOf('.');
   const baseName = extIndex !== -1 ? originalName.substring(0, extIndex) : originalName;
-  const ext = extIndex !== -1 ? originalName.substring(extIndex) : '';
-  
-  const newName = `${prefix}${baseName}${ext}`;
-  saveAs(blob, newName);
+  let ext = extIndex !== -1 ? originalName.substring(extIndex) : '';
+
+  if (outputFormat === 'image/webp') ext = '.webp';
+  else if (outputFormat === 'image/jpeg') ext = '.jpg';
+  else if (outputFormat === 'image/png') ext = '.png';
+
+  return `${prefix}${baseName}${ext}`;
+}
+
+export function downloadFile(blob: Blob, originalName: string, outputFormat?: string): void {
+  const filename = getOutputFilename(originalName, outputFormat);
+  saveAs(blob, filename);
 }

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, ZoomIn, ArrowLeftRight } from 'lucide-react';
+import { X, Columns, SplitSquareVertical } from 'lucide-react';
 import { formatBytes } from '../lib/utils';
 import type { FileItem } from '../lib/types';
 
@@ -13,50 +13,53 @@ export const PreviewModal: React.FC<PreviewModalProps> = ({ item, onClose }) => 
   const [viewMode, setViewMode] = useState<'slider' | 'side-by-side'>('slider');
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="relative w-full max-w-4xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/85 backdrop-blur-md animate-in fade-in duration-150">
+      <div className="relative w-full max-w-5xl bg-[#0c0d10] border border-[#22252c] rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900/80">
-          <div>
-            <h3 className="font-semibold text-white truncate max-w-md">{item.name}</h3>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Original: <span className="text-slate-300 font-medium">{formatBytes(item.originalSize)}</span>
-              {item.compressedSize && (
-                <>
-                  {' '}→ Compressed:{' '}
-                  <span className="text-emerald-400 font-medium">{formatBytes(item.compressedSize)}</span>
-                  {item.savingsPercent !== undefined && (
-                    <span className="ml-1.5 text-xs text-emerald-400 font-bold">
-                      (-{item.savingsPercent}%)
-                    </span>
-                  )}
-                </>
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#1f2228] bg-[#101215]">
+          <div className="min-w-0 flex items-center gap-3">
+            <h3 className="font-medium text-sm text-zinc-100 truncate max-w-xs sm:max-w-md">{item.name}</h3>
+            <div className="hidden sm:flex items-center gap-2 text-xs font-mono text-zinc-400">
+              <span>{formatBytes(item.originalSize)}</span>
+              <span>→</span>
+              <span className="text-emerald-400 font-semibold">{item.compressedSize ? formatBytes(item.compressedSize) : ''}</span>
+              {item.savingsPercent !== undefined && (
+                <span className="text-emerald-400 font-bold">(-{item.savingsPercent}%)</span>
               )}
-            </p>
+            </div>
           </div>
 
           <div className="flex items-center gap-2">
             <button
               onClick={() => setViewMode(viewMode === 'slider' ? 'side-by-side' : 'slider')}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 transition"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#181a20] hover:bg-[#20232a] border border-[#272b33] text-xs text-zinc-300 font-mono transition"
             >
-              <ArrowLeftRight className="w-3.5 h-3.5" />
-              <span>{viewMode === 'slider' ? 'Side-by-Side' : 'Split Slider'}</span>
+              {viewMode === 'slider' ? (
+                <>
+                  <Columns className="w-3.5 h-3.5 text-zinc-400" />
+                  <span className="hidden sm:inline">Side-by-Side</span>
+                </>
+              ) : (
+                <>
+                  <SplitSquareVertical className="w-3.5 h-3.5 text-zinc-400" />
+                  <span className="hidden sm:inline">Split Slider</span>
+                </>
+              )}
             </button>
             <button
               onClick={onClose}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+              className="p-1 rounded-md text-zinc-400 hover:text-white hover:bg-[#1c1f26] transition"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        {/* Content */}
-        <div className="relative flex-1 min-h-[350px] p-6 flex items-center justify-center overflow-auto bg-slate-950/60 select-none">
+        {/* Viewport */}
+        <div className="relative flex-1 min-h-[380px] p-4 sm:p-8 flex items-center justify-center overflow-auto bg-[#07080a] select-none">
           {viewMode === 'slider' ? (
             <div
-              className="relative max-w-full max-h-[60vh] overflow-hidden rounded-lg shadow-lg border border-slate-800 cursor-ew-resize"
+              className="relative max-w-full max-h-[65vh] overflow-hidden rounded-lg border border-[#1f2229] shadow-2xl cursor-ew-resize"
               onMouseMove={(e) => {
                 const rect = e.currentTarget.getBoundingClientRect();
                 const pos = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
@@ -72,8 +75,8 @@ export const PreviewModal: React.FC<PreviewModalProps> = ({ item, onClose }) => 
               {/* After (Compressed) */}
               <img
                 src={item.compressedPreviewUrl || item.originalPreviewUrl}
-                alt="Compressed preview"
-                className="max-h-[60vh] w-auto object-contain block"
+                alt="Compressed"
+                className="max-h-[65vh] w-auto object-contain block"
               />
 
               {/* Before (Original) with clip-path */}
@@ -83,49 +86,48 @@ export const PreviewModal: React.FC<PreviewModalProps> = ({ item, onClose }) => 
               >
                 <img
                   src={item.originalPreviewUrl}
-                  alt="Original preview"
-                  className="max-h-[60vh] w-auto object-contain block"
+                  alt="Original"
+                  className="max-h-[65vh] w-auto object-contain block"
                 />
               </div>
 
               {/* Divider Line */}
               <div
-                className="absolute top-0 bottom-0 w-0.5 bg-white shadow-[0_0_8px_rgba(255,255,255,0.8)] pointer-events-none"
+                className="absolute top-0 bottom-0 w-0.5 bg-white/90 shadow-[0_0_10px_rgba(255,255,255,0.7)] pointer-events-none"
                 style={{ left: `${sliderPos}%` }}
               >
-                <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-6 h-6 rounded-full bg-white text-slate-900 flex items-center justify-center shadow-md">
-                  <ArrowLeftRight className="w-3.5 h-3.5" />
+                <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-5 h-5 rounded-full bg-white text-zinc-950 flex items-center justify-center shadow-lg text-[10px] font-mono font-bold">
+                  ↔
                 </div>
               </div>
 
-              {/* Badges */}
-              <div className="absolute top-3 left-3 bg-slate-900/80 backdrop-blur px-2 py-1 rounded text-[11px] font-semibold text-slate-300 border border-slate-700">
-                Original (Before)
+              {/* Subtle Corner Markers */}
+              <div className="absolute top-3 left-3 bg-black/75 backdrop-blur-sm px-2 py-0.5 rounded text-[10px] font-mono text-zinc-300 border border-white/10">
+                Original ({formatBytes(item.originalSize)})
               </div>
-              <div className="absolute top-3 right-3 bg-indigo-950/80 backdrop-blur px-2 py-1 rounded text-[11px] font-semibold text-indigo-300 border border-indigo-700">
-                Compressed (After)
+              <div className="absolute top-3 right-3 bg-black/75 backdrop-blur-sm px-2 py-0.5 rounded text-[10px] font-mono text-emerald-400 border border-emerald-500/20">
+                Compressed ({item.compressedSize ? formatBytes(item.compressedSize) : ''})
               </div>
             </div>
           ) : (
-            /* Side-by-side mode */
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
               <div className="flex flex-col items-center">
-                <span className="text-xs font-semibold text-slate-400 mb-2">Original</span>
-                <div className="rounded-lg border border-slate-800 p-2 bg-slate-900/50 flex items-center justify-center">
+                <span className="text-xs font-mono text-zinc-400 mb-2">Original · {formatBytes(item.originalSize)}</span>
+                <div className="rounded-lg border border-[#1f2229] p-2 bg-[#0d0e11] max-h-[50vh] flex items-center justify-center">
                   <img
                     src={item.originalPreviewUrl}
                     alt="Original"
-                    className="max-h-[45vh] object-contain rounded"
+                    className="max-h-[46vh] object-contain rounded"
                   />
                 </div>
               </div>
               <div className="flex flex-col items-center">
-                <span className="text-xs font-semibold text-indigo-400 mb-2">Compressed</span>
-                <div className="rounded-lg border border-indigo-900/50 p-2 bg-indigo-950/20 flex items-center justify-center">
+                <span className="text-xs font-mono text-emerald-400 mb-2">Compressed · {item.compressedSize ? formatBytes(item.compressedSize) : ''}</span>
+                <div className="rounded-lg border border-[#1f2229] p-2 bg-[#0d0e11] max-h-[50vh] flex items-center justify-center">
                   <img
                     src={item.compressedPreviewUrl || item.originalPreviewUrl}
                     alt="Compressed"
-                    className="max-h-[45vh] object-contain rounded"
+                    className="max-h-[46vh] object-contain rounded"
                   />
                 </div>
               </div>
@@ -134,15 +136,12 @@ export const PreviewModal: React.FC<PreviewModalProps> = ({ item, onClose }) => 
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-3 border-t border-slate-800 bg-slate-900/80 flex items-center justify-between text-xs text-slate-400">
-          <div className="flex items-center gap-1.5">
-            <ZoomIn className="w-3.5 h-3.5 text-slate-500" />
-            <span>Drag slider horizontally to inspect pixel fidelity</span>
-          </div>
+        <div className="px-5 py-2.5 border-t border-[#1f2228] bg-[#101215] flex items-center justify-between text-[11px] font-mono text-zinc-400">
+          <span>Drag slider left/right to inspect pixel quality</span>
           {item.accuracy !== undefined && (
-            <div className="text-emerald-400 font-medium">
-              Target Size Match: {item.accuracy}%
-            </div>
+            <span className="text-zinc-300">
+              Target match: <strong className="text-emerald-400">{item.accuracy}%</strong>
+            </span>
           )}
         </div>
       </div>

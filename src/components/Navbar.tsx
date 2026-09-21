@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldCheck, Cpu, HelpCircle } from 'lucide-react';
+import { HelpCircle, Shield } from 'lucide-react';
 
 interface NavbarProps {
   onOpenGuide: () => void;
@@ -7,38 +7,51 @@ interface NavbarProps {
 
 export const Navbar: React.FC<NavbarProps> = ({ onOpenGuide }) => {
   return (
-    <header className="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-xl sticky top-0 z-30">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 p-[1px] shadow-lg shadow-indigo-500/20">
-            <div className="w-full h-full bg-slate-950 rounded-[11px] flex items-center justify-center">
-              <Cpu className="w-5 h-5 text-cyan-400" />
-            </div>
+    <header className="border-b border-[#1f2227] bg-[#090a0c]/85 backdrop-blur-md sticky top-0 z-30">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
+        {/* Brand */}
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg bg-[#141619] border border-[#262930] flex items-center justify-center text-white shadow-sm">
+            {/* Minimalist converging compression mark */}
+            <svg
+              className="w-4 h-4 text-zinc-100"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <polyline points="4 14 10 14 10 20" />
+              <polyline points="20 10 14 10 14 4" />
+              <line x1="14" y1="10" x2="21" y2="3" />
+              <line x1="3" y1="21" x2="10" y2="14" />
+            </svg>
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="font-bold text-lg text-white tracking-tight">ZeroUpload</span>
-              <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-                100% Client-Side
-              </span>
-            </div>
-            <p className="text-xs text-slate-400 hidden sm:block">Precision In-Browser File Compressor</p>
+          <div className="flex items-baseline gap-2">
+            <span className="font-semibold text-sm text-zinc-100 tracking-tight">ZeroUpload</span>
+            <span className="text-[11px] text-zinc-500 font-mono">compressor</span>
           </div>
         </div>
 
+        {/* Status indicator & Actions */}
         <div className="flex items-center gap-3">
-          <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium">
-            <ShieldCheck className="w-4 h-4 text-emerald-400" />
-            <span>Files Never Leave Your Device</span>
+          <div className="hidden sm:flex items-center gap-2 px-2.5 py-1 rounded-md bg-[#131518] border border-[#23262d] text-zinc-400 text-xs font-mono">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span>in-memory engine</span>
+          </div>
+
+          <div className="hidden md:flex items-center gap-1.5 text-xs text-zinc-400 border-l border-[#1f2227] pl-3">
+            <Shield className="w-3.5 h-3.5 text-zinc-500" />
+            <span>no server storage</span>
           </div>
 
           <button
             onClick={onOpenGuide}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-medium transition cursor-pointer"
-            title="How client-side compression works"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md hover:bg-[#181a1f] border border-transparent hover:border-[#272b33] text-zinc-400 hover:text-zinc-200 text-xs font-medium transition cursor-pointer"
           >
-            <HelpCircle className="w-4 h-4 text-slate-400" />
-            <span>Format Guide</span>
+            <HelpCircle className="w-3.5 h-3.5 text-zinc-400" />
+            <span>Format Specs</span>
           </button>
         </div>
       </div>

@@ -1,5 +1,5 @@
-import React, { useRef, useState } from 'react';
-import { UploadCloud, FileType, Image as ImageIcon, FileText, Sparkles } from 'lucide-react';
+import React, { useRef, useState, useEffect } from 'react';
+import { ArrowDown } from 'lucide-react';
 
 interface DropzoneProps {
   onFilesAdded: (files: File[]) => void;
@@ -8,6 +8,18 @@ interface DropzoneProps {
 export const Dropzone: React.FC<DropzoneProps> = ({ onFilesAdded }) => {
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Native clipboard paste support (Ctrl+V anywhere on page)
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      if (e.clipboardData?.files && e.clipboardData.files.length > 0) {
+        const filesArray = Array.from(e.clipboardData.files);
+        onFilesAdded(filesArray);
+      }
+    };
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, [onFilesAdded]);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -36,7 +48,6 @@ export const Dropzone: React.FC<DropzoneProps> = ({ onFilesAdded }) => {
     if (e.target.files && e.target.files.length > 0) {
       const filesArray = Array.from(e.target.files);
       onFilesAdded(filesArray);
-      // Reset input value to allow selecting same file again if needed
       e.target.value = '';
     }
   };
@@ -47,14 +58,17 @@ export const Dropzone: React.FC<DropzoneProps> = ({ onFilesAdded }) => {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       onClick={() => fileInputRef.current?.click()}
-      className={`relative group rounded-2xl border-2 border-dashed transition-all duration-300 p-8 sm:p-12 text-center cursor-pointer overflow-hidden ${
+      className={`relative group rounded-xl border transition-all duration-200 p-8 sm:p-12 text-center cursor-pointer select-none overflow-hidden ${
         isDragging
-          ? 'border-indigo-500 bg-indigo-500/10 scale-[1.01]'
-          : 'border-slate-800 hover:border-slate-700 bg-slate-900/40 hover:bg-slate-900/60'
+          ? 'border-blue-500 bg-blue-500/[0.04] ring-1 ring-blue-500/50'
+          : 'border-[#22252c] hover:border-[#32363f] bg-[#0d0e11] hover:bg-[#101215]'
       }`}
     >
-      {/* Background glow */}
-      <div className="absolute inset-0 bg-gradient-to-b from-indigo-500/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
+      {/* Subtle corner crosshairs for precision drafting aesthetic */}
+      <div className="absolute top-2.5 left-2.5 w-2 h-2 border-t border-l border-zinc-700 pointer-events-none opacity-40 group-hover:opacity-100 transition-opacity" />
+      <div className="absolute top-2.5 right-2.5 w-2 h-2 border-t border-r border-zinc-700 pointer-events-none opacity-40 group-hover:opacity-100 transition-opacity" />
+      <div className="absolute bottom-2.5 left-2.5 w-2 h-2 border-b border-l border-zinc-700 pointer-events-none opacity-40 group-hover:opacity-100 transition-opacity" />
+      <div className="absolute bottom-2.5 right-2.5 w-2 h-2 border-b border-r border-zinc-700 pointer-events-none opacity-40 group-hover:opacity-100 transition-opacity" />
 
       <input
         ref={fileInputRef}
@@ -66,34 +80,28 @@ export const Dropzone: React.FC<DropzoneProps> = ({ onFilesAdded }) => {
       />
 
       <div className="relative z-10 flex flex-col items-center">
-        <div className="w-16 h-16 rounded-2xl bg-indigo-600/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 group-hover:scale-110 group-hover:text-indigo-300 transition-all duration-300 mb-4 shadow-inner">
-          <UploadCloud className="w-8 h-8" />
+        {/* Minimalist action circle */}
+        <div className="w-11 h-11 rounded-full bg-[#16181d] border border-[#272b33] flex items-center justify-center text-zinc-300 group-hover:text-white group-hover:border-zinc-500 transition-all mb-4">
+          <ArrowDown className="w-4 h-4 group-hover:translate-y-0.5 transition-transform" />
         </div>
 
-        <h3 className="text-lg sm:text-xl font-semibold text-white mb-2">
-          Drop your files here, or <span className="text-indigo-400 underline underline-offset-4 decoration-indigo-500/30">browse</span>
+        <h3 className="text-base sm:text-lg font-medium text-zinc-100 tracking-tight mb-1">
+          Drop files to compress, or <span className="text-blue-400 underline underline-offset-4 decoration-blue-500/40 group-hover:decoration-blue-400">browse</span>
         </h3>
-        <p className="text-sm text-slate-400 max-w-md mb-6">
-          Compress Images (JPG, PNG, WebP), PDFs, and Word DOCX files directly inside your browser with ~99% target size precision.
+        
+        <p className="text-xs text-zinc-400 max-w-sm mb-5">
+          Images, PDFs, and Word documents. Compressed in your browser without uploading to any server.
         </p>
 
-        {/* Supported badges */}
-        <div className="flex flex-wrap items-center justify-center gap-2 text-xs">
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-800/80 border border-slate-700 text-slate-300">
-            <ImageIcon className="w-3.5 h-3.5 text-blue-400" />
-            JPG, PNG, WebP
-          </span>
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-800/80 border border-slate-700 text-slate-300">
-            <FileText className="w-3.5 h-3.5 text-red-400" />
-            PDF Documents
-          </span>
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-800/80 border border-slate-700 text-slate-300">
-            <FileType className="w-3.5 h-3.5 text-indigo-400" />
-            Word (.docx)
-          </span>
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-300 font-medium">
-            <Sparkles className="w-3.5 h-3.5" />
-            Exact Target Size
+        {/* Minimalist format chips + paste hint */}
+        <div className="flex flex-wrap items-center justify-center gap-2 text-[11px] font-mono text-zinc-400">
+          <span className="px-2 py-0.5 rounded bg-[#15171c] border border-[#23262e]">JPG</span>
+          <span className="px-2 py-0.5 rounded bg-[#15171c] border border-[#23262e]">PNG</span>
+          <span className="px-2 py-0.5 rounded bg-[#15171c] border border-[#23262e]">WEBP</span>
+          <span className="px-2 py-0.5 rounded bg-[#15171c] border border-[#23262e]">PDF</span>
+          <span className="px-2 py-0.5 rounded bg-[#15171c] border border-[#23262e]">DOCX</span>
+          <span className="hidden sm:inline-flex items-center gap-1 text-zinc-400 ml-1 pl-2 border-l border-zinc-800">
+            <kbd className="px-1.5 py-0.5 rounded bg-[#181a20] border border-zinc-800 text-[10px]">Ctrl+V</kbd> to paste
           </span>
         </div>
       </div>

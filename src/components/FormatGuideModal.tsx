@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Shield, Cpu, Image, FileText, FileType, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { X, ShieldCheck, Terminal } from 'lucide-react';
 
 interface FormatGuideModalProps {
   onClose: () => void;
@@ -7,113 +7,91 @@ interface FormatGuideModalProps {
 
 export const FormatGuideModal: React.FC<FormatGuideModalProps> = ({ onClose }) => {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="relative w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150">
+      <div className="relative w-full max-w-xl bg-[#0c0d10] border border-[#22252c] rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900/80">
-          <div className="flex items-center gap-2.5">
-            <Cpu className="w-5 h-5 text-indigo-400" />
-            <h3 className="font-semibold text-white">How Client-Side Compression Works</h3>
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#1f2228] bg-[#101215]">
+          <div className="flex items-center gap-2">
+            <Terminal className="w-4 h-4 text-zinc-300" />
+            <h3 className="font-medium text-sm text-zinc-100">Format & Engine Specifications</h3>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+            className="p-1 rounded-md text-zinc-400 hover:text-white hover:bg-[#1c1f26] transition"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Content */}
-        <div className="p-6 overflow-y-auto space-y-6 text-sm text-slate-300">
-          {/* Privacy Box */}
-          <div className="p-4 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-start gap-3">
-            <Shield className="w-5 h-5 text-indigo-400 shrink-0 mt-0.5" />
-            <div>
-              <h4 className="font-semibold text-white text-sm">100% In-Browser & Private</h4>
-              <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                Your files are processed directly in your browser using modern WebAssembly, Canvas, and HTML5 Web APIs. No data is ever sent to any remote server or third party.
-              </p>
+        <div className="p-5 overflow-y-auto space-y-4 text-xs text-zinc-300 font-sans">
+          {/* Privacy Note */}
+          <div className="p-3 rounded-lg bg-[#14161a] border border-[#23272f] flex items-start gap-3">
+            <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+            <div className="text-zinc-300 leading-relaxed">
+              <strong className="text-zinc-100">Zero Network Transit:</strong> All compression runs inside your browser tab via HTML5 Canvas, WebAssembly, and local worker memory. No file data is ever transmitted across the internet.
             </div>
           </div>
 
-          {/* Precision Target Sizing */}
+          {/* Specifications table */}
           <div className="space-y-2">
-            <h4 className="font-semibold text-white flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-              How the ~99% Accuracy Target Sizing Works
-            </h4>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Standard sliders guess a quality percentage (like 70%), which often results in unpredictable file sizes. Our engine runs an in-memory <strong>Bisection / Binary Search Algorithm</strong> that iteratively checks file weight in bytes, dynamically tuning quality and resolution until it converges right at your target size (e.g. 5 MB → exactly ~2.0 MB).
-            </p>
-          </div>
-
-          {/* Supported Formats breakdown */}
-          <div className="space-y-3">
-            <h4 className="font-semibold text-white">Supported Formats</h4>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-              {/* JPG / WebP */}
-              <div className="p-3 rounded-lg bg-slate-800/60 border border-slate-700/60 space-y-1">
-                <div className="flex items-center gap-2 font-medium text-white">
-                  <Image className="w-4 h-4 text-blue-400" />
-                  JPEG & WebP
+            <span className="text-[11px] font-mono text-zinc-400 uppercase tracking-wider">Compression Matrix</span>
+            
+            <div className="border border-[#20232a] rounded-lg divide-y divide-[#1b1e24] overflow-hidden text-xs">
+              <div className="p-3 bg-[#0f1114]">
+                <div className="flex items-center justify-between font-mono font-medium text-zinc-100 mb-1">
+                  <span>JPEG / WebP</span>
+                  <span className="text-[10px] text-emerald-400">~99% Target Accuracy</span>
                 </div>
-                <p className="text-slate-400">
-                  Compressed via native canvas lossy quantization. Reaches 98-99.5% exact target size.
+                <p className="text-zinc-400">
+                  Native lossy bisection search. Iterates image quality and scales dimensions automatically if low quality is insufficient.
                 </p>
               </div>
 
-              {/* PNG */}
-              <div className="p-3 rounded-lg bg-slate-800/60 border border-slate-700/60 space-y-1">
-                <div className="flex items-center gap-2 font-medium text-white">
-                  <Image className="w-4 h-4 text-cyan-400" />
-                  PNG (Lossy Palette)
+              <div className="p-3 bg-[#0f1114]">
+                <div className="flex items-center justify-between font-mono font-medium text-zinc-100 mb-1">
+                  <span>PNG</span>
+                  <span className="text-[10px] text-blue-400">Color Quantization</span>
                 </div>
-                <p className="text-slate-400">
-                  PNG is lossless by default. We quantize 32-bit colors down to an optimized 8-bit palette via UPNG.
+                <p className="text-zinc-400">
+                  PNG is lossless by default. Uses 8-bit palette quantization (UPNG) with Floyd-Steinberg dithering to reduce color overhead.
                 </p>
               </div>
 
-              {/* PDF */}
-              <div className="p-3 rounded-lg bg-slate-800/60 border border-slate-700/60 space-y-1">
-                <div className="flex items-center gap-2 font-medium text-white">
-                  <FileText className="w-4 h-4 text-red-400" />
-                  PDF Documents
+              <div className="p-3 bg-[#0f1114]">
+                <div className="flex items-center justify-between font-mono font-medium text-zinc-100 mb-1">
+                  <span>PDF Documents</span>
+                  <span className="text-[10px] text-zinc-400">Raster Stream Optimization</span>
                 </div>
-                <p className="text-slate-400">
-                  Renders pages and optimizes raster layers into a clean, compact PDF structure with pdf-lib.
+                <p className="text-zinc-400">
+                  Renders pages in memory via pdfjs, compresses image streams to fit your per-page budget, and rebuilds compact PDF objects via pdf-lib.
                 </p>
               </div>
 
-              {/* DOCX */}
-              <div className="p-3 rounded-lg bg-slate-800/60 border border-slate-700/60 space-y-1">
-                <div className="flex items-center gap-2 font-medium text-white">
-                  <FileType className="w-4 h-4 text-indigo-400" />
-                  Word (.docx)
+              <div className="p-3 bg-[#0f1114]">
+                <div className="flex items-center justify-between font-mono font-medium text-zinc-100 mb-1">
+                  <span>Word (.docx)</span>
+                  <span className="text-[10px] text-amber-400">Media Extraction & Deflate 9</span>
                 </div>
-                <p className="text-slate-400">
-                  Modern DOCX files are zip archives. We compress high-res embedded graphics in <code>word/media/</code> and repack with DEFLATE 9.
+                <p className="text-zinc-400">
+                  Extracts bloated embedded images from <code>word/media/</code>, downsamples them to fit document budget, and recompresses with maximum DEFLATE.
                 </p>
               </div>
             </div>
           </div>
 
-          {/* DOC vs DOCX note */}
-          <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-start gap-2.5 text-xs">
-            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-            <p className="text-amber-200/90 leading-relaxed">
-              <strong>Notice regarding legacy .doc:</strong> Old Microsoft Word 97-2003 binary files (<code>.doc</code>) cannot be modified client-side without massive 100MB+ desktop conversion runtimes. Please re-save old files as <strong>.docx</strong> in Microsoft Word or Google Docs before compressing.
-            </p>
+          <div className="p-3 rounded-lg bg-[#14161a] border border-[#23272f] text-[11px] text-zinc-400 leading-relaxed">
+            <strong className="text-zinc-300">Legacy Word (.doc):</strong> Old binary Word 97-2003 files (<code>.doc</code>) cannot be processed in-browser without massive desktop runtimes. Please re-save as <code>.docx</code> prior to compressing.
           </div>
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-3 border-t border-slate-800 bg-slate-900/80 flex justify-end">
+        <div className="px-5 py-3 border-t border-[#1f2228] bg-[#101215] flex justify-end">
           <button
             onClick={onClose}
-            className="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition"
+            className="px-3 py-1.5 rounded-lg bg-zinc-200 hover:bg-white text-zinc-950 text-xs font-semibold transition"
           >
-            Got it
+            Close
           </button>
         </div>
       </div>

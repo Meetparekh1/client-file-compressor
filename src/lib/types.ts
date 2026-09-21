@@ -2,6 +2,7 @@ export type FileStatus = 'idle' | 'compressing' | 'completed' | 'error';
 export type TargetMode = 'target_size' | 'percentage';
 
 export type SupportedCategory = 'image' | 'pdf' | 'docx' | 'unsupported';
+export type OutputFormat = 'original' | 'image/jpeg' | 'image/webp' | 'image/png';
 
 export interface FileItem {
   id: string;
@@ -15,6 +16,9 @@ export interface FileItem {
   targetMode: TargetMode;
   targetSize: number; // in bytes
   targetPercentage: number; // 10 to 90%
+  outputFormat?: OutputFormat;
+  maxWidth?: number; // Optional max dimension constraint
+  rotation?: number; // 0, 90, 180, 270 degrees
   
   // Results
   compressedBlob?: Blob;
@@ -40,6 +44,9 @@ export interface FileItem {
 export interface CompressionOptions {
   targetSizeBytes: number;
   tolerance?: number; // default 0.02 (2% error tolerance -> 98-100% target accuracy)
+  outputFormat?: OutputFormat;
+  maxWidth?: number;
+  rotation?: number;
   onProgress?: (progress: number, note?: string) => void;
 }
 

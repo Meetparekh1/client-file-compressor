@@ -9,7 +9,6 @@ import { Footer } from './components/Footer';
 import { compressFile, detectFileCategory } from './lib/compressors';
 import { calculateSavings } from './lib/utils';
 import type { FileItem, TargetMode } from './lib/types';
-import { Sparkles, Shield, Cpu, Zap } from 'lucide-react';
 
 export function App() {
   const [items, setItems] = useState<FileItem[]>([]);
@@ -86,12 +85,17 @@ export function App() {
     []
   );
 
+  const handleUpdateItem = useCallback((id: string, updates: Partial<FileItem>) => {
+    setItems((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, ...updates } : item))
+    );
+  }, []);
+
   // Compress single file
   const handleCompress = useCallback(async (id: string) => {
     const item = items.find((i) => i.id === id);
     if (!item) return;
 
-    // Set compressing state
     setItems((prev) =>
       prev.map((i) =>
         i.id === id ? { ...i, status: 'compressing', progress: 5, errorMessage: undefined } : i
@@ -102,6 +106,9 @@ export function App() {
       const result = await compressFile(item.file, {
         targetSizeBytes: item.targetSize,
         tolerance: 0.02,
+        rotation: item.rotation,
+        maxWidth: item.maxWidth,
+        outputFormat: item.outputFormat,
         onProgress: (progress) => {
           setItems((prev) =>
             prev.map((i) => (i.id === id ? { ...i, progress } : i))
@@ -195,51 +202,26 @@ export function App() {
   const isAnyCompressing = items.some((i) => i.status === 'compressing');
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100 selection:bg-indigo-500 selection:text-white">
+    <div className="min-h-screen flex flex-col bg-[#090a0c] text-zinc-100 selection:bg-blue-600 selection:text-white">
       <Navbar onOpenGuide={() => setIsGuideOpen(true)} />
 
-      <main className="flex-1 max-w-5xl mx-auto w-full px-4 sm:px-6 py-8 sm:py-12">
-        {/* Hero Header */}
-        <div className="text-center max-w-2xl mx-auto mb-10">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-xs font-semibold mb-4">
-            <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-            <span>Target File Size Precision Engine (~99% Accuracy)</span>
-          </div>
-
-          <h1 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight leading-tight mb-4">
-            Compress Files Locally{' '}
-            <span className="bg-gradient-to-r from-indigo-400 via-purple-400 to-cyan-400 bg-clip-text text-transparent">
-              Without Server Uploads
-            </span>
+      <main className="flex-1 max-w-4xl mx-auto w-full px-4 sm:px-6 py-8 sm:py-12">
+        {/* Clean, Human-Crafted Hero */}
+        <div className="mb-8">
+          <h1 className="text-2xl sm:text-3xl font-semibold text-zinc-100 tracking-tight mb-2">
+            Compress files to an exact target size
           </h1>
-
-          <p className="text-slate-400 text-sm sm:text-base leading-relaxed">
-            Need a 5 MB image compressed to exactly 2 MB? Specify your target size and our in-browser bisection algorithm hits it with 99% accuracy. Zero data leaves your computer.
+          <p className="text-zinc-400 text-sm max-w-xl leading-relaxed">
+            Need a 5 MB file compressed down to 2 MB? Specify the exact target size and the local bisection engine hits within 1% of your target. Images, PDFs, and Word documents processed 100% in-browser.
           </p>
-
-          {/* Quick Feature Badges */}
-          <div className="flex flex-wrap items-center justify-center gap-4 mt-6 text-xs text-slate-400">
-            <div className="flex items-center gap-1.5">
-              <Shield className="w-4 h-4 text-emerald-400" />
-              <span>100% Private (Client-Side)</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <Zap className="w-4 h-4 text-amber-400" />
-              <span>Exact Target Size</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <Cpu className="w-4 h-4 text-cyan-400" />
-              <span>JPG, PNG, PDF & DOCX</span>
-            </div>
-          </div>
         </div>
 
-        {/* Upload Zone */}
+        {/* Upload Deck */}
         <div className="mb-8">
           <Dropzone onFilesAdded={handleFilesAdded} />
         </div>
 
-        {/* Batch Controls (if items exist) */}
+        {/* Batch Controls (when files are loaded) */}
         {items.length > 0 && (
           <BatchControls
             items={items}
@@ -250,24 +232,25 @@ export function App() {
           />
         )}
 
-        {/* File Cards Queue */}
+        {/* File Queue */}
         {items.length > 0 && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between text-xs text-slate-400 px-1">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between text-xs font-mono text-zinc-400 px-1">
               <span>
                 Queue ({items.length} {items.length === 1 ? 'file' : 'files'})
               </span>
               <span>
-                {items.filter((i) => i.status === 'completed').length} of {items.length} compressed
+                {items.filter((i) => i.status === 'completed').length} / {items.length} compressed
               </span>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
               {items.map((item) => (
                 <CompressionItemCard
                   key={item.id}
                   item={item}
                   onUpdateTarget={handleUpdateTarget}
+                  onUpdateItem={handleUpdateItem}
                   onCompress={handleCompress}
                   onRemove={handleRemove}
                   onPreview={(previewItem) => setPreviewItem(previewItem)}
