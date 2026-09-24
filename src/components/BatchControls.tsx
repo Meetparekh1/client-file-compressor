@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { Play, Trash2, Archive, Sliders } from 'lucide-react';
+import { Play, Trash2, Archive, Sliders, CheckCircle2 } from 'lucide-react';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
-import { parseBytes, getOutputFilename } from '../lib/utils';
+import { getOutputFilename, formatBytes } from '../lib/utils';
 import type { FileItem } from '../lib/types';
 
 interface BatchControlsProps {
@@ -21,11 +21,17 @@ export const BatchControls: React.FC<BatchControlsProps> = ({
   isAnyCompressing,
 }) => {
   const [isZipping, setIsZipping] = useState(false);
-  const completedCount = items.filter((i) => i.status === 'completed' && i.compressedBlob).length;
+  const completedItems = items.filter((i) => i.status === 'completed' && i.compressedBlob && i.compressedSize);
+  const completedCount = completedItems.length;
   const pendingCount = items.filter((i) => i.status !== 'completed').length;
 
+  // Session cumulative statistics
+  const totalOriginal = completedItems.reduce((acc, i) => acc + i.originalSize, 0);
+  const totalCompressed = completedItems.reduce((acc, i) => acc + (i.compressedSize || 0), 0);
+  const totalSavedBytes = Math.max(0, totalOriginal - totalCompressed);
+  const totalSavedPercent = totalOriginal > 0 ? Math.round((totalSavedBytes / totalOriginal) * 100) : 0;
+
   const handleDownloadAllZip = async () => {
-    const completedItems = items.filter((i) => i.status === 'completed' && i.compressedBlob);
     if (completedItems.length === 0) return;
 
     setIsZipping(true);
@@ -46,58 +52,83 @@ export const BatchControls: React.FC<BatchControlsProps> = ({
   };
 
   return (
-    <div className="bg-[#0e1013] border border-[#21242b] rounded-xl p-3.5 mb-6 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-      {/* Batch target presets */}
-      <div className="flex flex-wrap items-center gap-1.5 text-xs font-mono">
-        <span className="text-zinc-400 text-[11px] mr-1 flex items-center gap-1">
-          <Sliders className="w-3.5 h-3.5" />
-          Set all:
-        </span>
-        {[0.5, 1, 2, 5].map((mb) => (
-          <button
-            key={mb}
-            type="button"
-            onClick={() => onApplyPresetAll(parseBytes(mb, 'MB'))}
-            className="px-2 py-1 rounded bg-[#16181d] hover:bg-[#20232a] border border-[#262932] text-zinc-300 hover:text-white transition"
-          >
-            {mb}MB
-          </button>
-        ))}
-      </div>
+    <div className="bg-[#0e1013] border border-[#21242b] rounded-xl p-3.5 mb-6 flex flex-col gap-3">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+        {/* Batch target presets */}
+        <div className="flex flex-wrap items-center gap-1.5 text-xs font-mono">
+          <span className="text-zinc-400 text-[11px] mr-1 flex items-center gap-1">
+            <Sliders className="w-3.5 h-3.5" />
+            Set all:
+          </span>
+          {[
+            { label: '200KB', bytes: 200 * 1024 },
+            { label: '500KB', bytes: 500 * 1024 },
+            { label: '1MB', bytes: 1024 * 1024 },
+            { label: '2MB', bytes: 2 * 1024 * 1024 },
+            { label: '5MB', bytes: 5 * 1024 * 1024 },
+          ].map((preset) => (
+            <button
+              key={preset.label}
+              type="button"
+              onClick={() => onApplyPresetAll(preset.bytes)}
+              className="px-2 py-0.5 rounded bg-[#16181d] hover:bg-[#20232a] border border-[#262932] text-zinc-300 hover:text-white transition"
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
 
-      {/* Batch actions */}
-      <div className="flex items-center gap-2 justify-end">
-        {pendingCount > 0 && (
+        {/* Batch actions */}
+        <div className="flex items-center gap-2 justify-end">
+          {pendingCount > 0 && (
+            <button
+              onClick={onCompressAll}
+              disabled={isAnyCompressing}
+              className="px-3.5 py-1.5 rounded-lg bg-zinc-100 hover:bg-white text-zinc-950 disabled:opacity-40 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+            >
+              <Play className="w-3 h-3 fill-current" />
+              <span>Compress All ({pendingCount})</span>
+            </button>
+          )}
+
+          {completedCount > 0 && (
+            <button
+              onClick={handleDownloadAllZip}
+              disabled={isZipping}
+              className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+            >
+              <Archive className="w-3.5 h-3.5" />
+              <span>{isZipping ? 'Zipping...' : `Download All (${completedCount})`}</span>
+            </button>
+          )}
+
           <button
-            onClick={onCompressAll}
+            onClick={onClearAll}
             disabled={isAnyCompressing}
-            className="px-3.5 py-1.5 rounded-lg bg-zinc-100 hover:bg-white text-zinc-950 disabled:opacity-40 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-[#181a20] transition"
+            title="Clear queue"
           >
-            <Play className="w-3 h-3 fill-current" />
-            <span>Compress All ({pendingCount})</span>
+            <Trash2 className="w-4 h-4" />
           </button>
-        )}
-
-        {completedCount > 0 && (
-          <button
-            onClick={handleDownloadAllZip}
-            disabled={isZipping}
-            className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
-          >
-            <Archive className="w-3.5 h-3.5" />
-            <span>{isZipping ? 'Zipping...' : `Download All (${completedCount})`}</span>
-          </button>
-        )}
-
-        <button
-          onClick={onClearAll}
-          disabled={isAnyCompressing}
-          className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-[#181a20] transition"
-          title="Clear queue"
-        >
-          <Trash2 className="w-4 h-4" />
-        </button>
+        </div>
       </div>
+
+      {/* Cumulative Saved Banner when items are completed */}
+      {completedCount > 0 && (
+        <div className="pt-2.5 border-t border-[#1a1c22] flex items-center justify-between text-xs font-mono text-zinc-400">
+          <div className="flex items-center gap-1.5">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+            <span>
+              {completedCount} of {items.length} files compressed
+            </span>
+          </div>
+          <div>
+            Total Saved:{' '}
+            <strong className="text-emerald-400 font-semibold">{formatBytes(totalSavedBytes)}</strong>{' '}
+            <span className="text-zinc-500">(-{totalSavedPercent}%)</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

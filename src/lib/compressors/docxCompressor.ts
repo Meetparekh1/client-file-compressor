@@ -23,7 +23,13 @@ export async function compressDocxToTarget(
   }
 
   onProgress?.(10, 'Unpacking DOCX archive...');
-  const zip = await JSZip.loadAsync(file);
+  let zip: JSZip;
+  try {
+    zip = await JSZip.loadAsync(file);
+  } catch {
+    throw new Error('Unable to read Word document. The file may be encrypted, password-protected, or corrupted.');
+  }
+
   const mediaFolder = zip.folder('word/media');
 
   const mediaFiles: { path: string; file: JSZip.JSZipObject }[] = [];
@@ -39,8 +45,7 @@ export async function compressDocxToTarget(
 
   if (mediaFiles.length > 0) {
     onProgress?.(25, `Found ${mediaFiles.length} embedded media files to compress...`);
-    
-    // Calculate total size of media files to estimate target ratio
+
     let totalMediaBytes = 0;
     const loadedMedia: { path: string; blob: Blob; originalSize: number }[] = [];
 
@@ -53,36 +58,39 @@ export async function compressDocxToTarget(
       loadedMedia.push({ path: item.path, blob, originalSize: blob.size });
     }
 
-    // Target reduction factor needed
-    const nonMediaOverhead = Math.max(20000, file.size - totalMediaBytes);
-    const mediaBudget = Math.max(15000 * mediaFiles.length, targetSizeBytes - nonMediaOverhead);
+    const nonMediaOverhead = Math.max(15000, file.size - totalMediaBytes);
+    const mediaBudget = Math.max(12000 * mediaFiles.length, targetSizeBytes - nonMediaOverhead);
     const targetScale = Math.min(0.9, mediaBudget / totalMediaBytes);
 
     for (let i = 0; i < loadedMedia.length; i++) {
       const item = loadedMedia[i];
       const progress = 25 + Math.round(((i + 1) / loadedMedia.length) * 50);
-      onProgress?.(progress, `Compressing image ${i + 1}/${loadedMedia.length}...`);
+      onProgress?.(progress, `Optimizing document image ${i + 1}/${loadedMedia.length}...`);
 
-      const targetImgBytes = Math.max(10000, Math.floor(item.originalSize * targetScale));
+      const targetImgBytes = Math.max(8000, Math.floor(item.originalSize * targetScale));
       if (item.originalSize > targetImgBytes) {
         try {
           const compResult = await compressImageToTarget(item.blob, {
             targetSizeBytes: targetImgBytes,
             tolerance: 0.05,
           });
-          const newArrayBuffer = await compResult.blob.arrayBuffer();
-          mediaFolder?.file(item.path, newArrayBuffer);
+
+          // Only replace if compressed version is strictly smaller than original
+          if (compResult.blob.size < item.originalSize) {
+            const newArrayBuffer = await compResult.blob.arrayBuffer();
+            mediaFolder?.file(item.path, newArrayBuffer);
+          }
           iterations += compResult.iterations;
         } catch {
-          // Fallback: keep original if image decode fails
+          // Graceful fallback: keep original image untouched
         }
       }
     }
   } else {
-    onProgress?.(40, 'No embedded raster media found. Applying maximum DEFLATE compression...');
+    onProgress?.(40, 'Applying maximum DEFLATE compression to document structure...');
   }
 
-  onProgress?.(85, 'Re-bundling DOCX archive with maximum compression...');
+  onProgress?.(85, 'Re-bundling DOCX package with maximum compression...');
   const compressedBlob = await zip.generateAsync({
     type: 'blob',
     mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -90,7 +98,10 @@ export async function compressDocxToTarget(
     compressionOptions: { level: 9 },
   });
 
-  const accuracy = Math.max(0, Math.min(100, Math.round((1 - Math.abs(compressedBlob.size - targetSizeBytes) / targetSizeBytes) * 1000) / 10));
+  const accuracy = Math.max(
+    0,
+    Math.min(100, Math.round((1 - Math.abs(compressedBlob.size - targetSizeBytes) / targetSizeBytes) * 1000) / 10)
+  );
 
   onProgress?.(100, 'DOCX compression complete');
   return {

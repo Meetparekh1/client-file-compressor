@@ -42,9 +42,9 @@ function drawTransformedImage(
 }
 
 /**
- * Precision Image Compressor using Bisection / Binary Search algorithm
+ * Precision Image Compressor using Bisection / Binary Search algorithm.
  * Reaches ~99% accuracy against user-defined target file size.
- * Also supports format conversion (e.g. PNG -> WebP), dimension limits, and rotation.
+ * Handles format conversion, dimension downscaling, and orientation rotation.
  */
 export async function compressImageToTarget(
   file: File | Blob,
@@ -64,8 +64,8 @@ export async function compressImageToTarget(
   // Max width downscaling if configured
   if (maxWidth && baseWidth > maxWidth) {
     const scale = maxWidth / baseWidth;
-    baseWidth = maxWidth;
-    baseHeight = Math.round(baseHeight * scale);
+    baseWidth = Math.max(32, Math.floor(maxWidth));
+    baseHeight = Math.max(32, Math.floor(baseHeight * scale));
   }
 
   let currentWidth = baseWidth;
@@ -120,6 +120,7 @@ export async function compressImageToTarget(
   let lowQ = 0.01;
   let highQ = 1.00;
   let bestBlob: Blob | null = null;
+  let minCandidateBlob: Blob | null = null;
   let bestDiff = Infinity;
 
   // Phase 1: Binary search on Quality
@@ -132,6 +133,11 @@ export async function compressImageToTarget(
     const candidateBlob = await canvasToBlob(canvas, mimeType, midQ);
     const candidateSize = candidateBlob.size;
     const diff = Math.abs(candidateSize - targetSizeBytes);
+
+    // Track smallest blob seen in case target is extremely small
+    if (!minCandidateBlob || candidateSize < minCandidateBlob.size) {
+      minCandidateBlob = candidateBlob;
+    }
 
     if (candidateSize <= targetSizeBytes && diff < bestDiff) {
       bestBlob = candidateBlob;
@@ -151,21 +157,21 @@ export async function compressImageToTarget(
     }
   }
 
-  // Phase 2: If even quality 0.01 is still larger than target, downscale dimensions
+  // Phase 2: If lowest quality is still larger than target, scale down dimensions
   if (!bestBlob || bestBlob.size > targetSizeBytes) {
     onProgress?.(75, 'Adjusting resolution to reach target...');
-    let currentBlob = bestBlob || (await canvasToBlob(canvas, mimeType, 0.5));
-    
+    let currentBlob = bestBlob || minCandidateBlob || (await canvasToBlob(canvas, mimeType, 0.05));
+
     let scaleAttempts = 0;
     while (currentBlob.size > targetSizeBytes && scaleAttempts < 5) {
       scaleAttempts++;
       iterations++;
-      
+
       const areaRatio = targetSizeBytes / currentBlob.size;
-      const linearRatio = Math.max(0.3, Math.min(0.9, Math.sqrt(areaRatio) * 0.96));
-      
-      currentWidth = Math.max(80, Math.floor(currentWidth * linearRatio));
-      currentHeight = Math.max(80, Math.floor(currentHeight * linearRatio));
+      const linearRatio = Math.max(0.25, Math.min(0.88, Math.sqrt(areaRatio) * 0.95));
+
+      currentWidth = Math.max(48, Math.floor(currentWidth * linearRatio));
+      currentHeight = Math.max(48, Math.floor(currentHeight * linearRatio));
 
       canvas.width = currentWidth;
       canvas.height = currentHeight;
@@ -174,12 +180,18 @@ export async function compressImageToTarget(
 
       drawTransformedImage(ctx, bitmap, currentWidth, currentHeight, rotation);
 
-      lowQ = 0.2;
-      highQ = 0.9;
+      // Binary search quality at this scaled resolution
+      lowQ = 0.05;
+      highQ = 0.85;
       for (let s = 0; s < 3; s++) {
         iterations++;
         const testQ = (lowQ + highQ) / 2;
         const testBlob = await canvasToBlob(canvas, mimeType, testQ);
+
+        if (!minCandidateBlob || testBlob.size < minCandidateBlob.size) {
+          minCandidateBlob = testBlob;
+        }
+
         if (testBlob.size <= targetSizeBytes) {
           bestBlob = testBlob;
           lowQ = testQ;
@@ -188,12 +200,15 @@ export async function compressImageToTarget(
         }
       }
 
-      currentBlob = bestBlob || (await canvasToBlob(canvas, mimeType, 0.7));
+      currentBlob = bestBlob || minCandidateBlob || (await canvasToBlob(canvas, mimeType, 0.4));
     }
   }
 
-  const finalBlob = bestBlob || (await canvasToBlob(canvas, mimeType, 0.05));
-  const accuracy = Math.max(0, Math.min(100, Math.round((1 - Math.abs(finalBlob.size - targetSizeBytes) / targetSizeBytes) * 1000) / 10));
+  const finalBlob = bestBlob || minCandidateBlob || (await canvasToBlob(canvas, mimeType, 0.05));
+  const accuracy = Math.max(
+    0,
+    Math.min(100, Math.round((1 - Math.abs(finalBlob.size - targetSizeBytes) / targetSizeBytes) * 1000) / 10)
+  );
 
   onProgress?.(100, 'Completed');
   return {
@@ -222,53 +237,70 @@ async function compressPNGWithTarget(
 ): Promise<CompressionResult> {
   const { origWidth, origHeight, onProgress } = options;
   let iterations = 0;
-  
+
   onProgress?.(20, 'Analyzing PNG color palette...');
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) throw new Error('Canvas context missing');
 
   const colorSteps = [256, 128, 64, 32, 16];
   let bestBlob: Blob | null = null;
+  let minBlob: Blob | null = null;
   let currentWidth = canvas.width;
   let currentHeight = canvas.height;
 
   for (let i = 0; i < colorSteps.length; i++) {
     iterations++;
     const colors = colorSteps[i];
-    onProgress?.(30 + i * 12, `Quantizing PNG to ${colors} colors...`);
+    onProgress?.(30 + i * 10, `Quantizing PNG (${colors} colors)...`);
 
     const imgData = ctx.getImageData(0, 0, currentWidth, currentHeight);
     const pngBuffer = UPNG.encode([imgData.data.buffer], currentWidth, currentHeight, colors);
     const candidateBlob = new Blob([pngBuffer], { type: 'image/png' });
 
+    if (!minBlob || candidateBlob.size < minBlob.size) {
+      minBlob = candidateBlob;
+    }
+
     if (candidateBlob.size <= targetSizeBytes) {
       bestBlob = candidateBlob;
       break;
     }
-    bestBlob = candidateBlob;
   }
 
-  if (bestBlob && bestBlob.size > targetSizeBytes) {
-    onProgress?.(80, 'Scaling PNG resolution for target size...');
-    const scale = Math.max(0.3, Math.min(0.85, Math.sqrt(targetSizeBytes / bestBlob.size) * 0.95));
-    currentWidth = Math.max(64, Math.floor(currentWidth * scale));
-    currentHeight = Math.max(64, Math.floor(currentHeight * scale));
+  // Iterative scaling fallback if 16 colors is still larger than target
+  let activeBlob = bestBlob || minBlob;
+  let scaleRounds = 0;
+  while (activeBlob && activeBlob.size > targetSizeBytes && scaleRounds < 3) {
+    scaleRounds++;
+    iterations++;
+    onProgress?.(75 + scaleRounds * 7, `Scaling resolution for target size...`);
+
+    const scale = Math.max(0.3, Math.min(0.85, Math.sqrt(targetSizeBytes / activeBlob.size) * 0.95));
+    currentWidth = Math.max(48, Math.floor(currentWidth * scale));
+    currentHeight = Math.max(48, Math.floor(currentHeight * scale));
 
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = currentWidth;
     tempCanvas.height = currentHeight;
     const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+
     if (tempCtx) {
       tempCtx.drawImage(canvas, 0, 0, currentWidth, currentHeight);
       const imgData = tempCtx.getImageData(0, 0, currentWidth, currentHeight);
       const pngBuffer = UPNG.encode([imgData.data.buffer], currentWidth, currentHeight, 64);
-      bestBlob = new Blob([pngBuffer], { type: 'image/png' });
-      iterations++;
+      activeBlob = new Blob([pngBuffer], { type: 'image/png' });
+      if (activeBlob.size <= targetSizeBytes) {
+        bestBlob = activeBlob;
+        break;
+      }
     }
   }
 
-  const finalBlob = bestBlob || (await canvasToBlob(canvas, 'image/png'));
-  const accuracy = Math.max(0, Math.min(100, Math.round((1 - Math.abs(finalBlob.size - targetSizeBytes) / targetSizeBytes) * 1000) / 10));
+  const finalBlob = bestBlob || activeBlob || (await canvasToBlob(canvas, 'image/png'));
+  const accuracy = Math.max(
+    0,
+    Math.min(100, Math.round((1 - Math.abs(finalBlob.size - targetSizeBytes) / targetSizeBytes) * 1000) / 10)
+  );
 
   onProgress?.(100, 'Completed');
   return {

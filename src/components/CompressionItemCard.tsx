@@ -11,6 +11,8 @@ import {
   SlidersHorizontal,
   ChevronDown,
   AlertCircle,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { formatBytes, parseBytes, downloadFile } from '../lib/utils';
 import type { FileItem, TargetMode, OutputFormat } from '../lib/types';
@@ -41,6 +43,30 @@ export const CompressionItemCard: React.FC<CompressionItemCardProps> = ({
   const [inputVal, setInputVal] = useState<string>(initialNum.toString());
   const [unit, setUnit] = useState<'MB' | 'KB'>(initialUnit);
   const [showOptions, setShowOptions] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyImage = async () => {
+    if (!item.compressedBlob) return;
+    try {
+      let blobToCopy = item.compressedBlob;
+      if (blobToCopy.type !== 'image/png') {
+        const bmp = await createImageBitmap(blobToCopy);
+        const c = document.createElement('canvas');
+        c.width = bmp.width;
+        c.height = bmp.height;
+        const ctx = c.getContext('2d');
+        ctx?.drawImage(bmp, 0, 0);
+        blobToCopy = await new Promise<Blob>((res) => c.toBlob((b) => res(b!), 'image/png'));
+      }
+      await navigator.clipboard.write([
+        new ClipboardItem({ 'image/png': blobToCopy }),
+      ]);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Ignore if clipboard permissions are restricted
+    }
+  };
 
   // Sync input value when targetSize changes externally
   useEffect(() => {
@@ -461,13 +487,23 @@ export const CompressionItemCard: React.FC<CompressionItemCardProps> = ({
         ) : (
           <div className="flex items-center gap-2">
             {item.category === 'image' && (
-              <button
-                onClick={() => onPreview(item)}
-                className="flex-1 py-2 px-3 rounded-lg bg-[#181a20] hover:bg-[#20232a] border border-[#272b33] text-zinc-300 text-xs font-medium flex items-center justify-center gap-1.5 transition"
-              >
-                <Eye className="w-3.5 h-3.5 text-zinc-400" />
-                <span>Compare</span>
-              </button>
+              <>
+                <button
+                  onClick={() => onPreview(item)}
+                  className="flex-1 py-2 px-2.5 rounded-lg bg-[#181a20] hover:bg-[#20232a] border border-[#272b33] text-zinc-300 text-xs font-medium flex items-center justify-center gap-1.5 transition"
+                >
+                  <Eye className="w-3.5 h-3.5 text-zinc-400" />
+                  <span>Compare</span>
+                </button>
+                <button
+                  onClick={handleCopyImage}
+                  className="py-2 px-2.5 rounded-lg bg-[#181a20] hover:bg-[#20232a] border border-[#272b33] text-zinc-300 text-xs font-medium flex items-center justify-center gap-1 transition"
+                  title="Copy compressed image to clipboard"
+                >
+                  {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-zinc-400" />}
+                  <span className="hidden sm:inline">{copied ? 'Copied' : 'Copy'}</span>
+                </button>
+              </>
             )}
 
             <button
