@@ -40,6 +40,17 @@ export async function compressPdfToTarget(
 
   const pdf = await loadingTask.promise;
   const numPages = pdf.numPages;
+
+  // Security: Prevent browser tab crash from PDF bombs
+  if (numPages > 500) {
+    try {
+      await pdf.destroy();
+    } catch {
+      // Ignore
+    }
+    throw new Error('PDF has over 500 pages. Please compress in smaller batches to avoid exceeding browser memory limits.');
+  }
+
   onProgress?.(20, `Processing ${numPages} page${numPages > 1 ? 's' : ''}...`);
 
   // Target budget per page (leave 4KB header/trailer overhead)
@@ -65,7 +76,8 @@ export async function compressPdfToTarget(
   const newPdfDoc = await PDFDocument.create();
   let iterations = 1;
 
-  for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+  try {
+    for (let pageNum = 1; pageNum <= numPages; pageNum++) {
     const pageProgress = 20 + Math.round((pageNum / numPages) * 65);
     onProgress?.(pageProgress, `Optimizing page ${pageNum} of ${numPages}...`);
 
@@ -148,4 +160,11 @@ export async function compressPdfToTarget(
     accuracy,
     iterations,
   };
+} finally {
+  try {
+    await pdf.destroy();
+  } catch {
+    // Ignore worker cleanup errors
+  }
+}
 }

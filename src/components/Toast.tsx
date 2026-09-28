@@ -20,17 +20,19 @@ export const ToastContainer: React.FC<ToastProps> = ({ toasts, onDismiss }) => {
       {toasts.map((toast) => (
         <div
           key={toast.id}
-          className="pointer-events-auto flex items-center gap-2.5 px-4 py-2.5 rounded-lg bg-[#14161a] border border-[#272b34] text-zinc-100 shadow-xl text-xs font-mono animate-in slide-in-from-bottom-2 fade-in duration-200"
+          className="pointer-events-auto flex items-center gap-2.5 px-4 py-2.5 rounded-xl border shadow-xl text-xs font-mono animate-in slide-in-from-bottom-2 fade-in duration-200
+            bg-white border-slate-200 text-slate-800
+            dark:bg-[#14161a] dark:border-[#272b34] dark:text-zinc-100"
         >
-          {toast.type === 'success' && <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />}
-          {toast.type === 'error' && <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />}
-          {toast.type === 'info' && <Info className="w-4 h-4 text-blue-400 shrink-0" />}
+          {toast.type === 'success' && <CheckCircle2 className="w-4 h-4 text-emerald-500 dark:text-emerald-400 shrink-0" />}
+          {toast.type === 'error' && <AlertCircle className="w-4 h-4 text-rose-500 dark:text-rose-400 shrink-0" />}
+          {toast.type === 'info' && <Info className="w-4 h-4 text-blue-500 dark:text-blue-400 shrink-0" />}
 
           <span className="flex-1 font-sans">{toast.message}</span>
 
           <button
             onClick={() => onDismiss(toast.id)}
-            className="p-1 rounded text-zinc-400 hover:text-zinc-200 transition"
+            className="p-1 rounded-md transition cursor-pointer text-slate-400 hover:text-slate-700 dark:text-zinc-400 dark:hover:text-zinc-200"
           >
             <X className="w-3.5 h-3.5" />
           </button>

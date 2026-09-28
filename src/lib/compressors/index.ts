@@ -2,17 +2,26 @@ import type { CompressionOptions, CompressionResult, SupportedCategory } from '.
 import { compressImageToTarget } from './imageCompressor';
 import { compressDocxToTarget } from './docxCompressor';
 import { compressPdfToTarget } from './pdfCompressor';
+import { compressSvgToTarget } from './svgCompressor';
 
 export function detectFileCategory(file: File): SupportedCategory {
   const name = file.name.toLowerCase();
   const type = file.type.toLowerCase();
+
+  if (type === 'image/svg+xml' || name.endsWith('.svg')) {
+    return 'svg';
+  }
 
   if (
     type.startsWith('image/') ||
     name.endsWith('.jpg') ||
     name.endsWith('.jpeg') ||
     name.endsWith('.png') ||
-    name.endsWith('.webp')
+    name.endsWith('.webp') ||
+    name.endsWith('.avif') ||
+    name.endsWith('.gif') ||
+    name.endsWith('.bmp') ||
+    name.endsWith('.ico')
   ) {
     return 'image';
   }
@@ -40,11 +49,13 @@ export async function compressFile(
 
   if (name.endsWith('.doc')) {
     throw new Error(
-      'Legacy binary .doc format is not supported for client-side compression. Please re-save the document as modern .docx in Microsoft Word or Google Docs.'
+      'Legacy binary .doc format cannot be processed client-side. Please re-save as modern .docx in Word or Google Docs.'
     );
   }
 
   switch (category) {
+    case 'svg':
+      return compressSvgToTarget(file, options);
     case 'image':
       return compressImageToTarget(file, options);
     case 'pdf':
@@ -52,6 +63,8 @@ export async function compressFile(
     case 'docx':
       return compressDocxToTarget(file, options);
     default:
-      throw new Error(`Unsupported file type (${file.type || 'unknown'}). Supported formats: JPG, PNG, WebP, PDF, and DOCX.`);
+      throw new Error(
+        `Unsupported file type (${file.type || 'unknown'}). Supported formats: JPG, PNG, WebP, AVIF, SVG, GIF, BMP, PDF, and DOCX.`
+      );
   }
 }

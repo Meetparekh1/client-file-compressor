@@ -1,15 +1,30 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  :root.light {
+    color-scheme: light;
+  }
+
   body {
-    background-color: #090a0c;
+    background-color: #090a0f;
     color: #f4f4f5;
     min-height: 100vh;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    selection-background-color: #2563eb;
-    selection-color: #ffffff;
+    transition: background-color 0.25s ease, color 0.25s ease;
+  }
+
+  .light body,
+  :root:not(.dark) body {
+    background-color: #f8fafc;
+    color: #0f172a;
   }
 }
 
@@ -17,6 +32,28 @@
 .bg-grid-pattern {
   background-image: radial-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px);
   background-size: 24px 24px;
+}
+
+.light .bg-grid-pattern {
+  background-image: radial-gradient(rgba(15, 23, 42, 0.06) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* Ambient glow background aura */
+.ambient-glow {
+  position: absolute;
+  top: -100px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 700px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(59, 130, 246, 0.08) 0%, rgba(99, 102, 241, 0.04) 40%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.light .ambient-glow {
+  background: radial-gradient(circle, rgba(59, 130, 246, 0.12) 0%, rgba(99, 102, 241, 0.06) 40%, transparent 70%);
 }
 
 /* Custom precision range slider */
@@ -34,6 +71,11 @@ input[type="range"]::-webkit-slider-runnable-track {
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
+.light input[type="range"]::-webkit-slider-runnable-track {
+  background: #e2e8f0;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
@@ -42,9 +84,14 @@ input[type="range"]::-webkit-slider-thumb {
   border-radius: 50%;
   background: #ffffff;
   border: 2px solid #090a0c;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
   margin-top: -6px;
   transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.light input[type="range"]::-webkit-slider-thumb {
+  border: 2px solid #3b82f6;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
 }
 
 input[type="range"]:active::-webkit-slider-thumb {
@@ -59,13 +106,22 @@ input[type="range"]::-moz-range-track {
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
+.light input[type="range"]::-moz-range-track {
+  background: #e2e8f0;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
 input[type="range"]::-moz-range-thumb {
   width: 18px;
   height: 18px;
   border-radius: 50%;
   background: #ffffff;
   border: 2px solid #090a0c;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.light input[type="range"]::-moz-range-thumb {
+  border: 2px solid #3b82f6;
 }
 
 /* Custom sleek scrollbar */
@@ -74,12 +130,18 @@ input[type="range"]::-moz-range-thumb {
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #090a0c;
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
   background: #22252a;
   border-radius: 9999px;
 }
+.light ::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+}
 ::-webkit-scrollbar-thumb:hover {
   background: #31353c;
+}
+.light ::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
 }

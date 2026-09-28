@@ -2,6 +2,10 @@ import JSZip from 'jszip';
 import type { CompressionOptions, CompressionResult } from '../types';
 import { compressImageToTarget } from './imageCompressor';
 
+// Safety constraints against zip bombs and memory exhaustion
+const MAX_MEDIA_COUNT = 500;
+const MAX_TOTAL_UNPACKED_BYTES = 200 * 1024 * 1024; // 200MB
+
 /**
  * Compresses modern Word (.docx) files client-side.
  * Extracts embedded media from word/media, optimizes photos to fit the target size budget,
@@ -35,10 +39,26 @@ export async function compressDocxToTarget(
   const mediaFiles: { path: string; file: JSZip.JSZipObject }[] = [];
   if (mediaFolder) {
     mediaFolder.forEach((relativePath, zipEntry) => {
+      // Security: Zip Slip path traversal mitigation
+      if (
+        relativePath.includes('..') ||
+        relativePath.startsWith('/') ||
+        relativePath.startsWith('\\') ||
+        zipEntry.name.includes('../') ||
+        zipEntry.name.includes('..\\')
+      ) {
+        return; // Ignore unsafe path traversal entry
+      }
+
       if (!zipEntry.dir && /\.(jpe?g|png|webp|gif|bmp)$/i.test(relativePath)) {
         mediaFiles.push({ path: relativePath, file: zipEntry });
       }
     });
+  }
+
+  // Security: Zip bomb mitigation against excessive file count
+  if (mediaFiles.length > MAX_MEDIA_COUNT) {
+    throw new Error(`Word document contains ${mediaFiles.length} media files, exceeding safe in-memory limit (${MAX_MEDIA_COUNT}).`);
   }
 
   let iterations = 1;
@@ -51,10 +71,16 @@ export async function compressDocxToTarget(
 
     for (const item of mediaFiles) {
       const arrayBuffer = await item.file.async('arraybuffer');
+      totalMediaBytes += arrayBuffer.byteLength;
+
+      // Security: Zip bomb mitigation against excessive uncompressed size
+      if (totalMediaBytes > MAX_TOTAL_UNPACKED_BYTES) {
+        throw new Error('Document media exceeds maximum in-memory safety limits (200MB).');
+      }
+
       const ext = item.path.split('.').pop()?.toLowerCase() || 'jpeg';
       const mime = ext === 'png' ? 'image/png' : 'image/jpeg';
       const blob = new Blob([arrayBuffer], { type: mime });
-      totalMediaBytes += blob.size;
       loadedMedia.push({ path: item.path, blob, originalSize: blob.size });
     }
 
