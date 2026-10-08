@@ -9,6 +9,20 @@ if (typeof window !== 'undefined') {
     pdfjsWorker || `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 }
 
+function canvasToBlobSafe(canvas: HTMLCanvasElement, mime = 'image/jpeg', quality = 0.75): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((b) => {
+      if (b && b.size > 0) resolve(b);
+      else {
+        canvas.toBlob((b2) => {
+          if (b2 && b2.size > 0) resolve(b2);
+          else reject(new Error('Failed to render page to image'));
+        }, 'image/png');
+      }
+    }, mime, quality);
+  });
+}
+
 /**
  * Compresses a PDF file client-side by rendering pages in memory,
  * optimizing imagery to fit the target size budget, and re-assembling
@@ -111,20 +125,23 @@ export async function compressPdfToTarget(
       for (let step = 0; step < 4; step++) {
         iterations++;
         const midQ = (lowQ + highQ) / 2;
-        const blob = await new Promise<Blob>((res) => canvas.toBlob((b) => res(b!), 'image/jpeg', midQ));
-
-        if (blob.size <= targetBytesPerPage) {
-          bestBlob = blob;
-          lowQ = midQ;
-        } else {
-          highQ = midQ;
-          bestBlob = blob;
+        try {
+          const blob = await canvasToBlobSafe(canvas, 'image/jpeg', midQ);
+          if (blob.size <= targetBytesPerPage) {
+            bestBlob = blob;
+            lowQ = midQ;
+          } else {
+            highQ = midQ;
+            bestBlob = blob;
+          }
+        } catch {
+          break;
         }
       }
 
       const finalPageBlob =
         bestBlob ||
-        (await new Promise<Blob>((res) => canvas.toBlob((b) => res(b!), 'image/jpeg', 0.35)));
+        (await canvasToBlobSafe(canvas, 'image/jpeg', 0.35));
 
       const pageImgBytes = await finalPageBlob.arrayBuffer();
       const embeddedImage = await newPdfDoc.embedJpg(pageImgBytes);

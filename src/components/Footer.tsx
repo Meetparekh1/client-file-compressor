@@ -10,7 +10,7 @@ export const Footer: React.FC = () => {
       <div className="max-w-5xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
         <div className="flex items-center gap-2">
           <Shield className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-          <span>ShrinkByte: Zero server uploads. No files or telemetry ever leave this device.</span>
+          <span>Local File Engine: Zero server uploads. No files or telemetry ever leave this device.</span>
         </div>
 
         <div className="flex items-center gap-3 text-slate-400 dark:text-zinc-400">

@@ -13,6 +13,7 @@ import {
   AlertCircle,
   Copy,
   Check,
+  Sparkles,
 } from 'lucide-react';
 import { formatBytes, parseBytes, downloadFile } from '../lib/utils';
 import type { FileItem, TargetMode, OutputFormat } from '../lib/types';
@@ -132,7 +133,15 @@ export const CompressionItemCard: React.FC<CompressionItemCardProps> = ({
     onUpdateItem(item.id, { rotation: nextRot });
   };
 
+  const isDocFile = item.name.toLowerCase().endsWith('.doc');
+  const isConvertingDocument =
+    item.outputFormat === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    (item.category === 'docx' && (item.outputFormat === 'application/pdf' || isDocFile));
+
   const getCategoryBadge = () => {
+    if (isDocFile) {
+      return <span className="px-1.5 py-0.5 rounded text-[10px] font-mono uppercase bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">DOC</span>;
+    }
     switch (item.category) {
       case 'image':
         return <span className="px-1.5 py-0.5 rounded text-[10px] font-mono uppercase bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">IMG</span>;
@@ -224,41 +233,104 @@ export const CompressionItemCard: React.FC<CompressionItemCardProps> = ({
           </button>
         </div>
 
-        {/* Quick Format Conversion Bar (for Images and SVGs) */}
-        {(item.category === 'image' || item.category === 'svg') && item.status !== 'completed' && (
+        {/* Quick Tool / Format Selection Bar */}
+        {item.status !== 'completed' && (
           <div className="pt-2.5 pb-2.5 border-t border-slate-100 dark:border-[#1c1f25] flex items-center justify-between gap-1 text-[11px] font-mono">
-            <span className="text-slate-500 dark:text-zinc-500 text-[10px] uppercase font-medium">Format:</span>
+            <span className="text-slate-500 dark:text-zinc-500 text-[10px] uppercase font-medium">Tool:</span>
             <div className="flex items-center gap-1 overflow-x-auto">
-              {[
-                { label: 'Auto', value: 'original' },
-                { label: 'WebP', value: 'image/webp' },
-                { label: 'AVIF', value: 'image/avif' },
-                { label: 'JPG', value: 'image/jpeg' },
-                { label: 'PNG', value: 'image/png' },
-                { label: 'PDF', value: 'application/pdf' },
-              ].map((fmt) => {
-                const isSelected = (item.outputFormat || 'original') === fmt.value;
-                return (
-                  <button
-                    key={fmt.value}
-                    type="button"
-                    onClick={() => onUpdateItem(item.id, { outputFormat: fmt.value as OutputFormat })}
-                    className={`px-2 py-0.5 rounded text-[10px] font-medium transition cursor-pointer ${
-                      isSelected
-                        ? 'bg-blue-600 text-white dark:bg-blue-500/20 dark:text-blue-300 dark:border dark:border-blue-500/40 shadow-xs'
-                        : 'bg-slate-100 hover:bg-slate-200/80 text-slate-700 border border-slate-200 dark:bg-[#14161a] dark:hover:bg-[#1d2027] dark:text-zinc-400 dark:hover:text-zinc-200 dark:border-[#232730]'
-                    }`}
-                  >
-                    {fmt.label}
-                  </button>
-                );
-              })}
+              {item.category === 'pdf' ? (
+                [
+                  { label: 'Compress PDF', value: 'original' },
+                  { label: 'To Word (DOCX)', value: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+                ].map((fmt) => {
+                  const isSelected = (item.outputFormat || 'original') === fmt.value;
+                  return (
+                    <button
+                      key={fmt.value}
+                      type="button"
+                      onClick={() => onUpdateItem(item.id, { outputFormat: fmt.value as OutputFormat })}
+                      className={`px-2 py-0.5 rounded text-[10px] font-medium transition cursor-pointer ${
+                        isSelected
+                          ? 'bg-blue-600 text-white dark:bg-blue-500/20 dark:text-blue-300 dark:border dark:border-blue-500/40 shadow-xs'
+                          : 'bg-slate-100 hover:bg-slate-200/80 text-slate-700 border border-slate-200 dark:bg-[#14161a] dark:hover:bg-[#1d2027] dark:text-zinc-400 dark:hover:text-zinc-200 dark:border-[#232730]'
+                      }`}
+                    >
+                      {fmt.label}
+                    </button>
+                  );
+                })
+              ) : item.category === 'docx' ? (
+                [
+                  ...(isDocFile
+                    ? []
+                    : [{ label: 'Compress Word', value: 'original' }]),
+                  { label: 'To PDF', value: 'application/pdf' },
+                  ...(isDocFile
+                    ? [{ label: 'To DOCX', value: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }]
+                    : []),
+                ].map((fmt) => {
+                  const currentFmt = item.outputFormat || (isDocFile ? 'application/pdf' : 'original');
+                  const isSelected = currentFmt === fmt.value;
+                  return (
+                    <button
+                      key={fmt.value}
+                      type="button"
+                      onClick={() => onUpdateItem(item.id, { outputFormat: fmt.value as OutputFormat })}
+                      className={`px-2 py-0.5 rounded text-[10px] font-medium transition cursor-pointer ${
+                        isSelected
+                          ? 'bg-blue-600 text-white dark:bg-blue-500/20 dark:text-blue-300 dark:border dark:border-blue-500/40 shadow-xs'
+                          : 'bg-slate-100 hover:bg-slate-200/80 text-slate-700 border border-slate-200 dark:bg-[#14161a] dark:hover:bg-[#1d2027] dark:text-zinc-400 dark:hover:text-zinc-200 dark:border-[#232730]'
+                      }`}
+                    >
+                      {fmt.label}
+                    </button>
+                  );
+                })
+              ) : (
+                [
+                  { label: 'Auto', value: 'original' },
+                  { label: 'WebP', value: 'image/webp' },
+                  { label: 'AVIF', value: 'image/avif' },
+                  { label: 'JPG', value: 'image/jpeg' },
+                  { label: 'PNG', value: 'image/png' },
+                  { label: 'PDF', value: 'application/pdf' },
+                ].map((fmt) => {
+                  const isSelected = (item.outputFormat || 'original') === fmt.value;
+                  return (
+                    <button
+                      key={fmt.value}
+                      type="button"
+                      onClick={() => onUpdateItem(item.id, { outputFormat: fmt.value as OutputFormat })}
+                      className={`px-2 py-0.5 rounded text-[10px] font-medium transition cursor-pointer ${
+                        isSelected
+                          ? 'bg-blue-600 text-white dark:bg-blue-500/20 dark:text-blue-300 dark:border dark:border-blue-500/40 shadow-xs'
+                          : 'bg-slate-100 hover:bg-slate-200/80 text-slate-700 border border-slate-200 dark:bg-[#14161a] dark:hover:bg-[#1d2027] dark:text-zinc-400 dark:hover:text-zinc-200 dark:border-[#232730]'
+                      }`}
+                    >
+                      {fmt.label}
+                    </button>
+                  );
+                })
+              )}
             </div>
           </div>
         )}
 
-        {/* Target Sizing Controls (When pending) */}
+        {/* Target Sizing Controls vs Conversion Mode Banner */}
         {item.status !== 'completed' && (
+          isConvertingDocument ? (
+            <div className="p-3 rounded-xl border bg-blue-50/50 border-blue-200/60 dark:bg-blue-950/20 dark:border-blue-900/40 text-blue-900 dark:text-blue-300 text-xs mb-4">
+              <div className="flex items-center gap-1.5 font-semibold text-[11px] mb-1">
+                <Sparkles className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                <span>High-Fidelity Document Engine</span>
+              </div>
+              <p className="text-[11px] text-slate-600 dark:text-zinc-400 leading-relaxed">
+                {item.category === 'pdf'
+                  ? 'Reconstructs tables, shapes, fonts, and inline layout into an editable Word (.docx).'
+                  : 'Renders Word document to PDF using headless LibreOffice with matching font metrics.'}
+              </p>
+            </div>
+          ) : (
           <div className="space-y-3 pt-3 border-t border-slate-100 dark:border-[#1c1f25] mb-4">
             {/* Mode Switcher */}
             <div className="flex items-center justify-between text-xs">
@@ -476,7 +548,8 @@ export const CompressionItemCard: React.FC<CompressionItemCardProps> = ({
               </div>
             )}
           </div>
-        )}
+        )
+      )}
 
         {/* Compression Progress Bar */}
         {item.status === 'compressing' && (
@@ -549,8 +622,14 @@ export const CompressionItemCard: React.FC<CompressionItemCardProps> = ({
             {item.status === 'compressing' ? (
               <>
                 <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                <span>Compressing...</span>
+                <span>{isConvertingDocument ? 'Converting document...' : 'Compressing...'}</span>
               </>
+            ) : isConvertingDocument ? (
+              <span>
+                {item.category === 'pdf'
+                  ? 'Convert PDF to Word (.docx)'
+                  : 'Convert Word to PDF'}
+              </span>
             ) : (
               <span>Compress to ~{formatBytes(item.targetSize)}</span>
             )}

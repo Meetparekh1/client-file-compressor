@@ -1,6 +1,7 @@
 import UPNG from 'upng-js';
 import { PDFDocument } from 'pdf-lib';
 import type { CompressionOptions, CompressionResult } from '../types';
+import { prepareSvgForCanvas } from './svgCompressor';
 
 /**
  * Helper to convert canvas to blob with promise and AVIF fallback
@@ -42,45 +43,63 @@ async function decodeImage(file: File | Blob): Promise<{
   draw: (ctx: CanvasRenderingContext2D, dx: number, dy: number, dw: number, dh: number) => void;
   cleanup?: () => void;
 }> {
-  try {
-    const bitmap = await createImageBitmap(file);
-    return {
-      width: bitmap.width,
-      height: bitmap.height,
-      draw: (ctx, dx, dy, dw, dh) => ctx.drawImage(bitmap, dx, dy, dw, dh),
-      cleanup: () => {
-        try {
-          bitmap.close();
-        } catch {
-          // Ignore
-        }
-      },
-    };
-  } catch {
-    return new Promise((resolve, reject) => {
-      const url = URL.createObjectURL(file);
-      const img = new Image();
-      img.onload = () => {
-        resolve({
-          width: img.naturalWidth || img.width || 800,
-          height: img.naturalHeight || img.height || 600,
-          draw: (ctx, dx, dy, dw, dh) => ctx.drawImage(img, dx, dy, dw, dh),
-          cleanup: () => {
-            try {
-              URL.revokeObjectURL(url);
-            } catch {
-              // Ignore
-            }
-          },
-        });
-      };
-      img.onerror = () => {
-        URL.revokeObjectURL(url);
-        reject(new Error('Unable to decode image format'));
-      };
-      img.src = url;
-    });
+  let targetFile = file;
+  if (file.type === 'image/svg+xml') {
+    try {
+      const text = await file.text();
+      const prepared = prepareSvgForCanvas(text);
+      targetFile = new Blob([prepared.text], { type: 'image/svg+xml' });
+    } catch {
+      // Continue with original
+    }
   }
+
+  // Skip createImageBitmap for SVG because browsers throw on SVG blobs
+  if (file.type !== 'image/svg+xml') {
+    try {
+      const bitmap = await createImageBitmap(targetFile);
+      return {
+        width: bitmap.width,
+        height: bitmap.height,
+        draw: (ctx, dx, dy, dw, dh) => ctx.drawImage(bitmap, dx, dy, dw, dh),
+        cleanup: () => {
+          try {
+            bitmap.close();
+          } catch {
+            // Ignore
+          }
+        },
+      };
+    } catch {
+      // Fall through to HTMLImageElement
+    }
+  }
+
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(targetFile);
+    const img = new Image();
+    img.onload = () => {
+      const width = Math.max(1, img.naturalWidth || img.width || 800);
+      const height = Math.max(1, img.naturalHeight || img.height || 600);
+      resolve({
+        width,
+        height,
+        draw: (ctx, dx, dy, dw, dh) => ctx.drawImage(img, dx, dy, dw, dh),
+        cleanup: () => {
+          try {
+            URL.revokeObjectURL(url);
+          } catch {
+            // Ignore
+          }
+        },
+      });
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Unable to decode image format'));
+    };
+    img.src = url;
+  });
 }
 
 /**

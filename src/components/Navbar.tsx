@@ -1,5 +1,5 @@
 import React from 'react';
-import { HelpCircle, Layers, Image as ImageIcon, FileText, FileType } from 'lucide-react';
+import { HelpCircle, Layers, Image as ImageIcon, FileText, FileType, Server } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 import type { ToolTab } from '../lib/types';
 
@@ -7,6 +7,7 @@ interface NavbarProps {
   activeTab: ToolTab;
   onTabChange: (tab: ToolTab) => void;
   onOpenGuide: () => void;
+  onOpenApiSettings?: () => void;
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
 }
@@ -15,6 +16,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   activeTab,
   onTabChange,
   onOpenGuide,
+  onOpenApiSettings,
   theme,
   onToggleTheme,
 }) => {
@@ -47,7 +49,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
           <div className="flex items-baseline gap-2">
             <span className="font-semibold text-sm tracking-tight text-slate-900 dark:text-zinc-100">
-              ShrinkByte
+              Local File Engine
             </span>
             <span className="text-[11px] font-mono px-1.5 py-0.5 rounded text-slate-500 bg-slate-100 border border-slate-200 dark:text-zinc-400 dark:bg-[#15171d] dark:border-[#22252c] hidden sm:inline">
               studio
@@ -106,6 +108,20 @@ export const Navbar: React.FC<NavbarProps> = ({
             <HelpCircle className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Format Matrix</span>
           </button>
+
+          {/* Converter API Engine Button */}
+          {onOpenApiSettings && (
+            <button
+              onClick={onOpenApiSettings}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer border
+                border-transparent hover:border-slate-200 hover:bg-slate-100 text-slate-600 hover:text-slate-900
+                dark:hover:border-[#272b33] dark:hover:bg-[#181a1f] dark:text-zinc-400 dark:hover:text-zinc-200"
+              title="Configure self-hosted Document Converter API"
+            >
+              <Server className="w-3.5 h-3.5 text-blue-500" />
+              <span className="hidden md:inline">API Engine</span>
+            </button>
+          )}
 
           {/* Animated Theme Toggle Button */}
           <ThemeToggle theme={theme} onToggle={onToggleTheme} />

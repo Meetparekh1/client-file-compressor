@@ -6,10 +6,12 @@ import { CompressionListView } from './components/CompressionListView';
 import { BatchControls } from './components/BatchControls';
 import { PreviewModal } from './components/PreviewModal';
 import { FormatGuideModal } from './components/FormatGuideModal';
+import { ApiSettingsModal } from './components/ApiSettingsModal';
 import { Footer } from './components/Footer';
 import { ToastContainer, type ToastMessage } from './components/Toast';
 import { compressFile, detectFileCategory } from './lib/compressors';
 import { calculateSavings, formatBytes, mergeImagesToPdf, sanitizeFilename } from './lib/utils';
+import { getConverterApiUrl } from './lib/remoteConverter';
 import { useTheme } from './lib/useTheme';
 import { saveAs } from 'file-saver';
 import type { FileItem, TargetMode, ToolTab, ViewMode, OutputFormat } from './lib/types';
@@ -22,6 +24,7 @@ export function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [previewItem, setPreviewItem] = useState<FileItem | null>(null);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
+  const [isApiSettingsOpen, setIsApiSettingsOpen] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [isWindowDragging, setIsWindowDragging] = useState(false);
 
@@ -82,6 +85,7 @@ export function App() {
           }
         }
 
+        const isDoc = file.name.toLowerCase().endsWith('.doc');
         newItems.push({
           id,
           file,
@@ -92,6 +96,7 @@ export function App() {
           targetMode: 'target_size',
           targetSize: defaultTargetBytes,
           targetPercentage: 50,
+          outputFormat: isDoc ? 'application/pdf' : undefined,
           status: 'idle',
           progress: 0,
           originalPreviewUrl: previewUrl,
@@ -104,7 +109,7 @@ export function App() {
       }
       if (skippedUnsupported > 0) {
         addToast(
-          `Skipped ${skippedUnsupported} unsupported file(s). Supported: JPG, PNG, WebP, AVIF, SVG, GIF, BMP, PDF, DOCX.`,
+          `Skipped ${skippedUnsupported} unsupported file(s). Supported: JPG, PNG, WebP, AVIF, SVG, GIF, BMP, PDF, DOCX, DOC.`,
           'error'
         );
       }
@@ -215,6 +220,7 @@ export function App() {
           rotation: item.rotation,
           maxWidth: item.maxWidth,
           outputFormat: item.outputFormat,
+          remoteApiUrl: getConverterApiUrl(),
           onProgress: (progress) => {
             setItems((prev) =>
               prev.map((i) => (i.id === id ? { ...i, progress } : i))
@@ -384,6 +390,7 @@ export function App() {
         activeTab={activeTab}
         onTabChange={setActiveTab}
         onOpenGuide={() => setIsGuideOpen(true)}
+        onOpenApiSettings={() => setIsApiSettingsOpen(true)}
         theme={theme}
         onToggleTheme={toggleTheme}
       />
@@ -540,6 +547,14 @@ export function App() {
       {/* Format Guide Modal */}
       {isGuideOpen && (
         <FormatGuideModal onClose={() => setIsGuideOpen(false)} />
+      )}
+
+      {/* Converter API Settings Modal */}
+      {isApiSettingsOpen && (
+        <ApiSettingsModal
+          isOpen={isApiSettingsOpen}
+          onClose={() => setIsApiSettingsOpen(false)}
+        />
       )}
 
       {/* Toast Notifications */}

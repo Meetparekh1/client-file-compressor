@@ -1,4 +1,4 @@
-# ShrinkByte — 100% Client-Side Precision File Compressor & Converter
+# Local File Engine — 100% Client-Side Precision File Compressor & Converter
 
 A high-performance, privacy-first web application that compresses and converts **Images (JPG, PNG, WebP, AVIF, SVG, GIF, BMP), PDFs, and Word (.docx) documents** completely inside the browser using **HTML5 Canvas, WebAssembly, pdf-lib, pdfjs-dist, and JSZip**.
 
@@ -38,8 +38,8 @@ A high-performance, privacy-first web application that compresses and converts *
 
 ### 1. Clone the repository
 ```bash
-git clone https://github.com/<your-username>/shrinkbyte.git
-cd shrinkbyte
+git clone https://github.com/<your-username>/local-file-engine.git
+cd local-file-engine
 ```
 
 ### 2. Install dependencies
@@ -64,7 +64,7 @@ npm run build
 ## Project Structure
 
 ```
-shrinkbyte/
+local-file-engine/
 ├── src/
 │   ├── components/
 │   │   ├── Navbar.tsx             # Brand header, tool category tabs, format matrix trigger

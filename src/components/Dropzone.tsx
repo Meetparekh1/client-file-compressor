@@ -62,9 +62,9 @@ export const Dropzone: React.FC<DropzoneProps> = ({ activeTab, hasItems, onFiles
       case 'pdf':
         return '.pdf,.jpg,.jpeg,.png,.webp';
       case 'docx':
-        return '.docx';
+        return '.docx,.doc,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
       default:
-        return '.jpg,.jpeg,.png,.webp,.avif,.svg,.gif,.bmp,.pdf,.docx';
+        return '.jpg,.jpeg,.png,.webp,.avif,.svg,.gif,.bmp,.pdf,.docx,.doc';
     }
   };
 
@@ -171,6 +171,7 @@ export const Dropzone: React.FC<DropzoneProps> = ({ activeTab, hasItems, onFiles
               { ext: 'SVG', dot: 'bg-amber-500' },
               { ext: 'PDF', dot: 'bg-rose-500' },
               { ext: 'DOCX', dot: 'bg-blue-500' },
+              { ext: 'DOC', dot: 'bg-indigo-500' },
             ].map(({ ext, dot }) => (
               <span
                 key={ext}
