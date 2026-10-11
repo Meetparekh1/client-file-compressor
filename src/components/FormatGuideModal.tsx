@@ -39,7 +39,7 @@ export const FormatGuideModal: React.FC<FormatGuideModalProps> = ({ onClose }) =
           >
             <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
             <div className="leading-relaxed">
-              <strong className="text-emerald-900 dark:text-zinc-100">Zero Network Transit:</strong> All compression runs inside your browser tab via HTML5 Canvas, WebAssembly, and local worker memory. No file data is ever transmitted across any server.
+              <strong className="text-emerald-900 dark:text-zinc-100">Local-First Privacy:</strong> Compression, conversion, and PDF operations run directly on your device via WebAssembly and Canvas. No files leave your browser without explicit opt-in consent for optional remote services.
             </div>
           </div>
 

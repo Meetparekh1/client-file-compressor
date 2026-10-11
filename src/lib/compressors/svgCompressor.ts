@@ -48,6 +48,13 @@ export function sanitizeSvgDocument(doc: Document): void {
     'applet',
     'meta',
     'link',
+    'base',
+    'animate',
+    'set',
+    'animatetransform',
+    'animatemotion',
+    'handler',
+    'listener',
   ];
 
   for (const tag of DANGEROUS_TAGS) {
@@ -63,7 +70,21 @@ export function sanitizeSvgDocument(doc: Document): void {
     removeNode(meta);
   }
 
-  // 4. Clean attributes across all elements in the SVG DOM
+  // 4. Sanitize style elements: remove @import, expressions, and javascript: URLs
+  const styleElements = Array.from(doc.getElementsByTagName('style'));
+  for (const styleEl of styleElements) {
+    const text = styleEl.textContent || '';
+    if (
+      /@import/i.test(text) ||
+      /expression\s*\(/i.test(text) ||
+      /javascript:/i.test(text) ||
+      /behavior\s*:/i.test(text)
+    ) {
+      removeNode(styleEl);
+    }
+  }
+
+  // 5. Clean attributes across all elements in the SVG DOM
   const allElements = Array.from(doc.getElementsByTagName('*'));
   for (const el of allElements) {
     const attributesToRemove: string[] = [];
@@ -73,18 +94,40 @@ export function sanitizeSvgDocument(doc: Document): void {
       const attrName = attr.name.toLowerCase();
       const attrValue = attr.value.trim().toLowerCase();
 
-      // Block inline event handlers (e.g. onload, onclick, onerror)
+      // Block inline event handlers (e.g. onload, onclick, onerror, onbegin)
       if (attrName.startsWith('on')) {
         attributesToRemove.push(attr.name);
         continue;
       }
 
-      // Neutralize dangerous script URIs in href and xlink:href
-      if (attrName === 'href' || attrName.endsWith(':href')) {
+      // Neutralize dangerous script URIs in href, xlink:href, src, formaction
+      if (
+        attrName === 'href' ||
+        attrName.endsWith(':href') ||
+        attrName === 'src' ||
+        attrName === 'action' ||
+        attrName === 'formaction' ||
+        attrName === 'data'
+      ) {
         if (
           attrValue.startsWith('javascript:') ||
           attrValue.startsWith('vbscript:') ||
-          attrValue.startsWith('data:text/html')
+          attrValue.startsWith('data:text/html') ||
+          attrValue.startsWith('data:image/svg+xml') ||
+          attrValue.includes('javascript:')
+        ) {
+          attributesToRemove.push(attr.name);
+          continue;
+        }
+      }
+
+      // Block dangerous style attribute contents
+      if (attrName === 'style') {
+        if (
+          attrValue.includes('expression(') ||
+          attrValue.includes('javascript:') ||
+          attrValue.includes('behavior:') ||
+          attrValue.includes('@import')
         ) {
           attributesToRemove.push(attr.name);
           continue;
@@ -112,32 +155,27 @@ export function sanitizeSvgDocument(doc: Document): void {
 
 /**
  * Sanitizes SVG markup using native browser DOMParser instead of regular expressions.
+ * Throws a SecurityLimitError or Error if the SVG cannot be safely parsed.
+ * Never falls back to returning raw unsanitized markup.
  */
 export function sanitizeSvg(svgText: string): string {
   if (typeof DOMParser === 'undefined') return svgText;
 
-  try {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(svgText, 'image/svg+xml');
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(svgText, 'image/svg+xml');
 
-    const parserError = doc.querySelector('parsererror');
-    if (parserError) {
-      // Fallback: parse via text/html if XML parser encountered minor syntax variance
-      const htmlParser = new DOMParser();
-      const htmlDoc = htmlParser.parseFromString(svgText, 'text/html');
-      const svgEl = htmlDoc.querySelector('svg');
-      if (svgEl) {
-        const newDoc = parser.parseFromString(svgEl.outerHTML, 'image/svg+xml');
-        sanitizeSvgDocument(newDoc);
-        return new XMLSerializer().serializeToString(newDoc);
-      }
-    }
+  const parserError =
+    doc.querySelector('parsererror') ||
+    doc.getElementsByTagName('parsererror').length > 0 ||
+    doc.documentElement?.nodeName.toLowerCase() === 'parsererror' ||
+    (doc.documentElement?.nodeName.toLowerCase() !== 'svg' && !doc.querySelector('svg'));
 
-    sanitizeSvgDocument(doc);
-    return new XMLSerializer().serializeToString(doc);
-  } catch {
-    return svgText;
+  if (parserError) {
+    throw new Error('SVG sanitization failed: malformed or potentially unsafe vector markup.');
   }
+
+  sanitizeSvgDocument(doc);
+  return new XMLSerializer().serializeToString(doc);
 }
 
 /**

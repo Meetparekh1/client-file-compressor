@@ -1,8 +1,8 @@
-# ShrinkByte — 100% Client-Side Precision File Compressor & Converter
+# ShrinkByte — Local-First Precision File Compressor, Converter & Tool Suite
 
-A high-performance, privacy-first web application that compresses and converts **Images (JPG, PNG, WebP, AVIF, SVG, GIF, BMP), PDFs, and Word (.docx) documents** completely inside the browser using **HTML5 Canvas, WebAssembly, pdf-lib, pdfjs-dist, and JSZip**.
+A high-performance, privacy-first web application that compresses and converts **Images (JPG, PNG, WebP, AVIF, SVG, GIF, BMP), PDFs, and Word (.docx) documents** inside the browser using **HTML5 Canvas, WebAssembly, pdf-lib, pdfjs-dist, and JSZip**.
 
-**Zero bytes are sent to any server.** All compression, conversion, and PDF merging run locally in memory on the user's computer.
+**Local-First Architecture:** By default, all compression, conversion, OCR, and PDF processing run on-device inside your browser tab without sending any files across the network. If an advanced optional tool requires remote assistance (such as high-fidelity PDF-to-Word), ShrinkByte enforces explicit user consent before any remote network request is made.
 
 ---
 
@@ -10,8 +10,8 @@ A high-performance, privacy-first web application that compresses and converts *
 
 1. **Precision Target Sizing (~99% Accuracy)**:
    - Need a 5 MB image or document compressed down to exactly 2.0 MB? Specify the exact target size in MB or KB, and our bisection binary search engine converges to within $1-2\%$ of your target without exceeding it.
-2. **100% Client-Side / Zero-Server Privacy**:
-   - Files are never uploaded to any remote server or cloud. Safe for sensitive documents, contracts, and confidential images.
+2. **Local-First & Explicit Consent Remote Processing**:
+   - Files are never uploaded without prior user confirmation. Complete audit logs and transparent destination badges indicate On-Device, Local AI, or Hybrid Server processing.
 3. **Multi-Format Compression & Universal Conversion**:
    - **JPEG / WebP / AVIF**: Iterative lossy quantization with auto-resolution downsampling and modern AV1 encoding.
    - **SVG Vector Graphics**: Automated vector minifier (strips metadata, comments, redundant XML namespaces, and rounds coordinates) plus direct conversion to WebP, PNG, JPEG, or PDF.

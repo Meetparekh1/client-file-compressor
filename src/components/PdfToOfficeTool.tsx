@@ -31,6 +31,9 @@ import {
 import { convertPdfToDocx as remoteConvertPdfToDocx, checkConverterHealth, downloadBlob } from '../lib/remoteConverter';
 import { formatBytes, sanitizeFilename } from '../lib/utils';
 import { parseFriendlyError } from '../lib/errorParser';
+import { RemoteConsentModal } from './RemoteConsentModal';
+import { hasRemoteProcessingConsent } from '../lib/remoteConsent';
+import { validateFileSize } from '../lib/securityLimits';
 import type { ToastMessage } from './Toast';
 
 interface PdfToOfficeToolProps {
@@ -53,9 +56,7 @@ export const PdfToOfficeTool: React.FC<PdfToOfficeToolProps> = ({ onBack, onToas
   const [convertedBlob, setConvertedBlob] = useState<Blob | null>(null);
   const [convertedName, setConvertedName] = useState('');
   const [showIncompatibilityModal, setShowIncompatibilityModal] = useState(false);
-  // Phase 0.3: show a privacy notice before the first remote server upload
   const [showServerConsentModal, setShowServerConsentModal] = useState(false);
-  const [serverConsentAcknowledged, setServerConsentAcknowledged] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Analyze document characteristics upon file selection
@@ -94,6 +95,13 @@ export const PdfToOfficeTool: React.FC<PdfToOfficeToolProps> = ({ onBack, onToas
       onToast('Please upload a valid PDF document.', 'error');
       return;
     }
+    try {
+      validateFileSize(selected);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Invalid file';
+      onToast(msg, 'error');
+      return;
+    }
     setFile(selected);
     setConvertedBlob(null);
     setForceContinuousExcel(false);
@@ -106,6 +114,13 @@ export const PdfToOfficeTool: React.FC<PdfToOfficeToolProps> = ({ onBack, onToas
     if (!dropped) return;
     if (dropped.type !== 'application/pdf' && !dropped.name.toLowerCase().endsWith('.pdf')) {
       onToast('Please drop a valid PDF document.', 'error');
+      return;
+    }
+    try {
+      validateFileSize(dropped);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Invalid file';
+      onToast(msg, 'error');
       return;
     }
     setFile(dropped);
@@ -192,8 +207,8 @@ export const PdfToOfficeTool: React.FC<PdfToOfficeToolProps> = ({ onBack, onToas
       setShowIncompatibilityModal(true);
       return;
     }
-    // Phase 0.3: If server engine is selected and consent not yet given, show privacy notice first
-    if (useServerEngine && isServerAvailable && selectedFormat === 'docx' && !serverConsentAcknowledged) {
+    // Remote consent guard
+    if (useServerEngine && isServerAvailable && selectedFormat === 'docx' && !hasRemoteProcessingConsent()) {
       setShowServerConsentModal(true);
       return;
     }
@@ -642,72 +657,19 @@ export const PdfToOfficeTool: React.FC<PdfToOfficeToolProps> = ({ onBack, onToas
         </div>
       )}
 
-      {/* Server Upload Consent Modal — Phase 0.3 */}
-      {showServerConsentModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-[#141824] rounded-3xl border border-stone-200 dark:border-[#252c3c] p-6 max-w-md w-full shadow-2xl space-y-4">
-            <div className="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center">
-              <AlertTriangle className="w-6 h-6" />
-            </div>
-
-            <div>
-              <h3 className="text-lg font-bold text-stone-900 dark:text-white">
-                File Will Be Sent to Server
-              </h3>
-              <p className="text-xs sm:text-sm text-stone-600 dark:text-zinc-400 mt-2 leading-relaxed">
-                You have selected the <strong>Server (LibreOffice)</strong> engine. Clicking confirm will{' '}
-                <strong>upload your PDF file</strong> to the following API endpoint:
-              </p>
-              <code className="block mt-2 text-xs font-mono bg-stone-100 dark:bg-[#1a1f2c] text-stone-800 dark:text-zinc-300 px-3 py-2 rounded-xl break-all">
-                {typeof window !== 'undefined'
-                  ? (localStorage.getItem('converter-api-url') || 'http://localhost:7860')
-                  : 'http://localhost:7860'}
-              </code>
-            </div>
-
-            <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-800 dark:text-amber-300 space-y-1">
-              <p className="font-semibold">Privacy notice:</p>
-              <p>Your file content will be transmitted to this endpoint. Only use this option if you trust and control the server. For full privacy, switch back to the <strong>On-Device</strong> engine instead.</p>
-            </div>
-
-            <div className="pt-2 flex flex-col sm:flex-row gap-2.5">
-              <button
-                onClick={() => {
-                  setServerConsentAcknowledged(true);
-                  setShowServerConsentModal(false);
-                  executeConvert();
-                }}
-                className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold
-                  bg-amber-600 hover:bg-amber-500 active:scale-95 text-white shadow-md shadow-amber-500/20 transition-all cursor-pointer"
-              >
-                <Server className="w-4 h-4" />
-                <span>I Understand — Upload to Server</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  setShowServerConsentModal(false);
-                  setUseServerEngine(false);
-                }}
-                className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold
-                  bg-stone-100 hover:bg-stone-200 text-stone-700 dark:bg-[#1e2330] dark:hover:bg-[#282f42] dark:text-zinc-300 transition-all cursor-pointer"
-              >
-                <Laptop className="w-4 h-4" />
-                <span>Stay On-Device (Safer)</span>
-              </button>
-            </div>
-
-            <div className="text-center pt-1">
-              <button
-                onClick={() => setShowServerConsentModal(false)}
-                className="text-[11px] text-stone-400 hover:text-stone-600 dark:hover:text-zinc-300 transition"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Standardized Remote Processing Consent Modal */}
+      <RemoteConsentModal
+        isOpen={showServerConsentModal}
+        toolName="PDF to Office (LibreOffice Server Engine)"
+        onConsentGranted={() => {
+          setShowServerConsentModal(false);
+          executeConvert();
+        }}
+        onCancel={() => {
+          setShowServerConsentModal(false);
+          setUseServerEngine(false);
+        }}
+      />
     </div>
   );
 };

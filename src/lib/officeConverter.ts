@@ -1,5 +1,6 @@
 import JSZip from 'jszip';
 import * as pdfjsLib from 'pdfjs-dist';
+import { validateFileSize, validatePageCount, MAX_PDF_PAGES } from './securityLimits';
 
 // Ensure PDF.js worker is registered
 if (typeof window !== 'undefined' && 'Worker' in window) {
@@ -82,9 +83,11 @@ export async function extractAndAnalyzePdf(
   file: File,
   onProgress?: (current: number, total: number) => void
 ): Promise<{ pages: ExtractedPageContent[]; analysis: DocumentAnalysis }> {
+  validateFileSize(file);
   const arrayBuffer = await file.arrayBuffer();
   const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
   const pdf = await loadingTask.promise;
+  validatePageCount(pdf.numPages, MAX_PDF_PAGES, 'PDF to Office');
   const pages: ExtractedPageContent[] = [];
 
   let totalWords = 0;

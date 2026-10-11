@@ -1,4 +1,11 @@
 import { PDFDocument } from 'pdf-lib';
+import { 
+  validateFileSize, 
+  validatePageCount, 
+  MAX_PDF_PAGES, 
+  TIMEOUT_GENERAL_MS, 
+  withExecutionTimeout 
+} from './securityLimits';
 
 export interface MergePdfItem {
   id: string;
@@ -19,29 +26,45 @@ export async function mergePdfFiles(
     throw new Error('Please select at least 2 PDF files to merge.');
   }
 
-  const mergedPdf = await PDFDocument.create();
-  let totalPages = 0;
-
-  for (let i = 0; i < pdfFiles.length; i++) {
-    const file = pdfFiles[i];
-    onProgress?.(Math.round(((i) / pdfFiles.length) * 100), file.name);
-
-    const arrayBuffer = await file.arrayBuffer();
-    const donorPdf = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
-    const copiedPages = await mergedPdf.copyPages(donorPdf, donorPdf.getPageIndices());
-
-    for (const page of copiedPages) {
-      mergedPdf.addPage(page);
-      totalPages++;
-    }
+  for (const f of pdfFiles) {
+    validateFileSize(f);
   }
 
-  onProgress?.(95, 'Finalizing document...');
-  const mergedBytes = await mergedPdf.save();
-  const blob = new Blob([mergedBytes as Uint8Array<ArrayBuffer>], { type: 'application/pdf' });
-  onProgress?.(100, 'Done');
+  return withExecutionTimeout(
+    (async () => {
+      const mergedPdf = await PDFDocument.create();
+      let totalPages = 0;
 
-  return { blob, totalPages };
+      for (let i = 0; i < pdfFiles.length; i++) {
+        const file = pdfFiles[i];
+        onProgress?.(Math.round((i / pdfFiles.length) * 100), file.name);
+
+        const arrayBuffer = await file.arrayBuffer();
+        const donorPdf = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+        const donorPages = donorPdf.getPageIndices();
+
+        if (totalPages + donorPages.length > MAX_PDF_PAGES) {
+          validatePageCount(totalPages + donorPages.length, MAX_PDF_PAGES, 'Merge PDF');
+        }
+
+        const copiedPages = await mergedPdf.copyPages(donorPdf, donorPages);
+
+        for (const page of copiedPages) {
+          mergedPdf.addPage(page);
+          totalPages++;
+        }
+      }
+
+      onProgress?.(95, 'Finalizing document...');
+      const mergedBytes = await mergedPdf.save();
+      const blob = new Blob([mergedBytes as Uint8Array<ArrayBuffer>], { type: 'application/pdf' });
+      onProgress?.(100, 'Done');
+
+      return { blob, totalPages };
+    })(),
+    TIMEOUT_GENERAL_MS,
+    'Merge PDF Files'
+  );
 }
 
 /**
@@ -89,6 +112,7 @@ export async function extractPdfPages(
   pagesToExtract: number[], // 1-based numbers
   onProgress?: (progress: number) => void
 ): Promise<{ blob: Blob; extractedPageCount: number }> {
+  validateFileSize(sourceFile);
   if (pagesToExtract.length === 0) {
     throw new Error('Please select at least one page to extract.');
   }
@@ -97,6 +121,7 @@ export async function extractPdfPages(
   const arrayBuffer = await sourceFile.arrayBuffer();
   const sourcePdf = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
   const totalPages = sourcePdf.getPageCount();
+  validatePageCount(totalPages, MAX_PDF_PAGES, 'Extract PDF');
 
   const zeroBasedIndices = pagesToExtract
     .filter(p => p >= 1 && p <= totalPages)
@@ -129,9 +154,11 @@ export async function splitPdfIntoSinglePages(
   sourceFile: File,
   onProgress?: (current: number, total: number) => void
 ): Promise<{ pageBlobs: { pageNumber: number; blob: Blob }[] }> {
+  validateFileSize(sourceFile);
   const arrayBuffer = await sourceFile.arrayBuffer();
   const sourcePdf = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
   const totalPages = sourcePdf.getPageCount();
+  validatePageCount(totalPages, MAX_PDF_PAGES, 'Split PDF');
   const pageBlobs: { pageNumber: number; blob: Blob }[] = [];
 
   for (let i = 0; i < totalPages; i++) {

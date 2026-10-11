@@ -1,6 +1,12 @@
 import { PDFDocument, degrees, rgb, StandardFonts } from 'pdf-lib';
 import * as pdfjsLib from 'pdfjs-dist';
 import JSZip from 'jszip';
+import { 
+  validateFileSize, 
+  validatePageCount, 
+  MAX_PDF_PAGES, 
+  MAX_PDF_TO_IMAGES_PAGES 
+} from './securityLimits';
 
 // Configure pdfjs worker if available
 if (typeof window !== 'undefined' && 'Worker' in window) {
@@ -23,9 +29,11 @@ export async function rotatePdfPages(
   angle: 90 | 180 | 270,
   targetPages: 'all' | number[] = 'all'
 ): Promise<Blob> {
+  validateFileSize(file);
   const arrayBuffer = await file.arrayBuffer();
   const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
   const totalPages = pdfDoc.getPageCount();
+  validatePageCount(totalPages, MAX_PDF_PAGES, 'Rotate PDF');
 
   const indicesToRotate = targetPages === 'all'
     ? pdfDoc.getPageIndices()
@@ -49,9 +57,11 @@ export async function deletePdfPages(
   file: File,
   pagesToDelete: number[]
 ): Promise<{ blob: Blob; remainingCount: number }> {
+  validateFileSize(file);
   const arrayBuffer = await file.arrayBuffer();
   const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
   const totalPages = pdfDoc.getPageCount();
+  validatePageCount(totalPages, MAX_PDF_PAGES, 'Delete Pages');
 
   if (pagesToDelete.length >= totalPages) {
     throw new Error('You cannot delete all pages in the document. At least one page must remain.');
@@ -111,9 +121,11 @@ export async function addPageNumbersToPdf(
     fontSize?: number;
   }
 ): Promise<Blob> {
+  validateFileSize(file);
   const arrayBuffer = await file.arrayBuffer();
   const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
   const totalPages = pdfDoc.getPageCount();
+  validatePageCount(totalPages, MAX_PDF_PAGES, 'Add Page Numbers');
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const fontSize = options.fontSize || 10;
   const startNum = options.startAt || 1;
@@ -318,10 +330,12 @@ export async function pdfToImagesZip(
   format: 'png' | 'jpeg' = 'png',
   onProgress?: (current: number, total: number) => void
 ): Promise<Blob> {
+  validateFileSize(file);
   const arrayBuffer = await file.arrayBuffer();
   const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
   const pdf = await loadingTask.promise;
   const numPages = pdf.numPages;
+  validatePageCount(numPages, MAX_PDF_TO_IMAGES_PAGES, 'PDF to Images');
   const zip = new JSZip();
 
   for (let i = 1; i <= numPages; i++) {

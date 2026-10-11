@@ -12,7 +12,7 @@ export const Footer: React.FC = () => {
             <ShieldCheck className="w-4 h-4" />
           </div>
           <span className="font-medium text-stone-700 dark:text-zinc-300">
-            100% In-Browser Engine: All files are processed strictly inside your device's memory.
+            Local-First Architecture: Documents process on-device by default. Remote processing is strictly opt-in with explicit consent.
           </span>
         </div>
 
@@ -20,15 +20,15 @@ export const Footer: React.FC = () => {
         <div className="flex flex-wrap items-center gap-3 font-mono text-[11px]">
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-stone-100 dark:bg-[#161a23] border border-stone-200/80 dark:border-white/5">
             <Lock className="w-3 h-3 text-indigo-500" />
-            Zero Server Uploads
+            Default On-Device
           </span>
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-stone-100 dark:bg-[#161a23] border border-stone-200/80 dark:border-white/5">
             <Cpu className="w-3 h-3 text-emerald-500" />
-            Client-Side WASM & Web APIs
+            Client-Side WASM &amp; Web APIs
           </span>
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-stone-100 dark:bg-[#161a23] border border-stone-200/80 dark:border-white/5">
             <Sparkles className="w-3 h-3 text-amber-500" />
-            No Watermarks
+            Explicit Consent Required
           </span>
         </div>
       </div>

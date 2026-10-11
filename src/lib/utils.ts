@@ -25,11 +25,22 @@ export function calculateSavings(original: number, compressed: number): { bytes:
 
 /**
  * Sanitizes user-provided or extracted file names to prevent
- * Zip Slip path traversal and malicious file system character injection.
+ * Zip Slip path traversal, backend output-path injection, and malicious file system characters.
  */
 export function sanitizeFilename(filename: string): string {
-  // Strip any directory paths (both Unix and Windows style) safely without multi-character regex
-  const basename = filename.split(/[\\/]/).pop() || 'file';
+  if (!filename || typeof filename !== 'string') return 'file';
+
+  // Decode URI encoding if present (e.g. %2e%2e%2f or %2e%2e%5c)
+  let decoded = filename;
+  try {
+    decoded = decodeURIComponent(filename);
+  } catch {
+    // If malformed URI encoding, keep raw filename
+  }
+
+  // Strip any directory paths (both Unix and Windows style, plus protocol schemes)
+  const basename = decoded.split(/[\\/]/).pop() || 'file';
+
   // Replace illegal file system, traversal, and non-printable control characters
   const cleanChars = Array.from(basename)
     .map((char) => {
@@ -40,8 +51,28 @@ export function sanitizeFilename(filename: string): string {
       return char;
     })
     .join('');
-  // Strip leading dots to prevent hidden files or traversal sequences
-  const safe = cleanChars.replace(/^\.+/, '').trim();
+
+  // Strip leading and trailing dots and spaces to prevent traversal or hidden/truncated files
+  let safe = cleanChars.replace(/^\.+/, '').trim().replace(/\.+$/, '');
+
+  // Block Windows reserved filenames (CON, PRN, AUX, NUL, COM1-COM9, LPT1-LPT9)
+  const baseWithoutExt = safe.split('.')[0].toUpperCase();
+  const RESERVED_NAMES = [
+    'CON', 'PRN', 'AUX', 'NUL',
+    'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
+    'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'
+  ];
+  if (RESERVED_NAMES.includes(baseWithoutExt)) {
+    safe = `safe_${safe}`;
+  }
+
+  // Constrain filename length to prevent filesystem buffer issues
+  if (safe.length > 200) {
+    const extIndex = safe.lastIndexOf('.');
+    const ext = extIndex !== -1 ? safe.slice(extIndex) : '';
+    safe = safe.slice(0, 200 - ext.length) + ext;
+  }
+
   return safe || 'file';
 }
 

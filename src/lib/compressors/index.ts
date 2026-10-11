@@ -4,6 +4,8 @@ import { compressDocxToTarget } from './docxCompressor';
 import { compressPdfToTarget } from './pdfCompressor';
 import { compressSvgToTarget } from './svgCompressor';
 import { convertDocxToPdf, convertPdfToDocx } from '../remoteConverter';
+import { validateFileSize } from '../securityLimits';
+import { assertRemoteProcessingConsent } from '../remoteConsent';
 
 export function detectFileCategory(file: File): SupportedCategory {
   const name = file.name.toLowerCase();
@@ -47,12 +49,14 @@ export async function compressFile(
   file: File,
   options: CompressionOptions
 ): Promise<CompressionResult> {
+  validateFileSize(file);
   const category = detectFileCategory(file);
   const name = file.name.toLowerCase();
 
   // 1. PDF Handling: Either convert to Word (DOCX) or compress PDF
   if (category === 'pdf') {
     if (options.outputFormat === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+      assertRemoteProcessingConsent(options.remoteApiUrl);
       options.onProgress?.(25, 'Initiating high-fidelity PDF to Word conversion...');
       const docxBlob = await convertPdfToDocx(file, {
         apiUrl: options.remoteApiUrl,
@@ -72,6 +76,7 @@ export async function compressFile(
   if (category === 'docx') {
     // If output format is PDF or file is legacy binary .doc, use converter microservice
     if (options.outputFormat === 'application/pdf' || name.endsWith('.doc')) {
+      assertRemoteProcessingConsent(options.remoteApiUrl);
       options.onProgress?.(25, 'Initiating high-fidelity Word to PDF conversion via LibreOffice...');
       const pdfBlob = await convertDocxToPdf(file, {
         apiUrl: options.remoteApiUrl,

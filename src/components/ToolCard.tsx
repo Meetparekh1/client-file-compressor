@@ -84,18 +84,26 @@ export const ToolCard: React.FC<ToolCardProps> = ({ tool, onSelect }) => {
           </div>
 
           <div className="flex items-center gap-1.5 flex-wrap justify-end">
-            {/* On-Device Shield Badge */}
-            {tool.runsOnDevice && (
-              <span
-                title="Runs 100% on this device in your browser. Zero file upload."
-                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border
-                  bg-emerald-50 border-emerald-200/80 text-emerald-700
-                  dark:bg-emerald-950/60 dark:border-emerald-800/60 dark:text-emerald-300"
-              >
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                <span>On-Device</span>
+            {/* Explicit Processing Destination Badge */}
+            <span
+              title={tool.destinationLabel}
+              className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
+                tool.destination === 'hybrid'
+                  ? 'bg-blue-50 border-blue-200/80 text-blue-700 dark:bg-blue-950/60 dark:border-blue-800/60 dark:text-blue-300'
+                  : tool.destination === 'local_cdn_model'
+                  ? 'bg-purple-50 border-purple-200/80 text-purple-700 dark:bg-purple-950/60 dark:border-purple-800/60 dark:text-purple-300'
+                  : 'bg-emerald-50 border-emerald-200/80 text-emerald-700 dark:bg-emerald-950/60 dark:border-emerald-800/60 dark:text-emerald-300'
+              }`}
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>
+                {tool.destination === 'hybrid'
+                  ? 'Hybrid Local/Server'
+                  : tool.destination === 'local_cdn_model'
+                  ? 'Local AI'
+                  : 'On-Device'}
               </span>
-            )}
+            </span>
 
             {/* Status / Feature badge */}
             {tool.badgeLabel && (

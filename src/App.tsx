@@ -33,6 +33,7 @@ import { useUiMode } from './lib/useUiMode';
 import { saveAs } from 'file-saver';
 import type { FileItem, TargetMode, ToolTab, ViewMode, OutputFormat } from './lib/types';
 import type { ToolCategory } from './lib/toolsRegistry';
+import { MAX_FILE_SIZE_BYTES, MAX_TOTAL_BATCH_BYTES, MAX_BATCH_FILE_COUNT } from './lib/securityLimits';
 import { UploadCloud, LayoutGrid, List, ArrowLeft, ShieldCheck, Menu } from 'lucide-react';
 
 export function App() {
@@ -81,10 +82,16 @@ export function App() {
       const newItems: FileItem[] = [];
       let skippedEmpty = 0;
       let skippedUnsupported = 0;
+      let skippedTooLarge = 0;
 
       for (const file of newFiles) {
         if (file.size === 0) {
           skippedEmpty++;
+          continue;
+        }
+
+        if (file.size > MAX_FILE_SIZE_BYTES) {
+          skippedTooLarge++;
           continue;
         }
 
@@ -142,6 +149,14 @@ export function App() {
       if (skippedEmpty > 0) {
         addToast(`Skipped ${skippedEmpty} empty (0-byte) file(s).`, 'error');
       }
+      if (skippedTooLarge > 0) {
+        addToast(
+          `Skipped ${skippedTooLarge} file(s) exceeding upload limit of ${Math.round(
+            MAX_FILE_SIZE_BYTES / (1024 * 1024)
+          )}MB.`,
+          'error'
+        );
+      }
       if (skippedUnsupported > 0) {
         addToast(
           `Skipped ${skippedUnsupported} unsupported file(s).`,
@@ -150,7 +165,22 @@ export function App() {
       }
 
       if (newItems.length > 0) {
-        setItems((prev) => [...prev, ...newItems]);
+        setItems((prev) => {
+          if (prev.length + newItems.length > MAX_BATCH_FILE_COUNT) {
+            addToast(`Queue limited to maximum ${MAX_BATCH_FILE_COUNT} files.`, 'error');
+            return [...prev, ...newItems.slice(0, Math.max(0, MAX_BATCH_FILE_COUNT - prev.length))];
+          }
+          const totalBytes = [...prev, ...newItems].reduce((acc, curr) => acc + curr.originalSize, 0);
+          if (totalBytes > MAX_TOTAL_BATCH_BYTES) {
+            addToast(
+              `Total queue size exceeds safe limit (${Math.round(
+                MAX_TOTAL_BATCH_BYTES / (1024 * 1024)
+              )}MB).`,
+              'error'
+            );
+          }
+          return [...prev, ...newItems];
+        });
         addToast(`Added ${newItems.length} file(s) to compression queue.`, 'info');
         setActiveView('compress-pdf');
       }
