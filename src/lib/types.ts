@@ -8,7 +8,8 @@ export type OutputFormat =
   | 'image/webp'
   | 'image/png'
   | 'image/avif'
-  | 'application/pdf';
+  | 'application/pdf'
+  | 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
 export type ToolTab = 'all' | 'images' | 'pdf' | 'docx';
 export type ViewMode = 'grid' | 'list';
@@ -57,6 +58,7 @@ export interface CompressionOptions {
   outputFormat?: OutputFormat;
   maxWidth?: number;
   rotation?: number;
+  remoteApiUrl?: string;
   onProgress?: (progress: number, note?: string) => void;
 }
 

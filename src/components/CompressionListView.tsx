@@ -57,6 +57,7 @@ export const CompressionListView: React.FC<CompressionListViewProps> = ({
   };
 
   const getFormatBadge = (item: FileItem) => {
+    if (item.name.toLowerCase().endsWith('.doc')) return <span className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded">DOC</span>;
     if (item.category === 'svg') return <span className="text-[10px] font-mono text-purple-600 dark:text-purple-400 bg-purple-500/10 px-1.5 py-0.5 rounded">SVG</span>;
     if (item.category === 'pdf') return <span className="text-[10px] font-mono text-rose-600 dark:text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded">PDF</span>;
     if (item.category === 'docx') return <span className="text-[10px] font-mono text-amber-600 dark:text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded">DOCX</span>;

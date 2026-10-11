@@ -1,5 +1,22 @@
 import { useState, useCallback, useEffect } from 'react';
-import { Navbar } from './components/Navbar';
+import { Sidebar } from './components/Sidebar';
+import { Dashboard } from './components/Dashboard';
+import { MergePdfTool } from './components/MergePdfTool';
+import { SplitPdfTool } from './components/SplitPdfTool';
+import { ScanToPdfTool } from './components/ScanToPdfTool';
+import { SignWatermarkTool } from './components/SignWatermarkTool';
+import { RotatePdfTool } from './components/RotatePdfTool';
+import { DeletePagesTool } from './components/DeletePagesTool';
+import { PageNumbersTool } from './components/PageNumbersTool';
+import { PdfToImagesTool } from './components/PdfToImagesTool';
+import { FlattenPdfTool } from './components/FlattenPdfTool';
+import { TextToPdfTool } from './components/TextToPdfTool';
+import { PdfToOfficeTool } from './components/PdfToOfficeTool';
+import { AiSummarizerTool } from './components/AiSummarizerTool';
+import { OcrPdfTool } from './components/OcrPdfTool';
+import { HtmlToPdfTool } from './components/HtmlToPdfTool';
+import { EditPdfTool } from './components/EditPdfTool';
+import { UnlockPdfTool } from './components/UnlockPdfTool';
 import { Dropzone } from './components/Dropzone';
 import { CompressionItemCard } from './components/CompressionItemCard';
 import { CompressionListView } from './components/CompressionListView';
@@ -10,20 +27,41 @@ import { Footer } from './components/Footer';
 import { ToastContainer, type ToastMessage } from './components/Toast';
 import { compressFile, detectFileCategory } from './lib/compressors';
 import { calculateSavings, formatBytes, mergeImagesToPdf, sanitizeFilename } from './lib/utils';
+import { parseFriendlyError } from './lib/errorParser';
 import { useTheme } from './lib/useTheme';
+import { useUiMode } from './lib/useUiMode';
 import { saveAs } from 'file-saver';
 import type { FileItem, TargetMode, ToolTab, ViewMode, OutputFormat } from './lib/types';
-import { UploadCloud, LayoutGrid, List } from 'lucide-react';
+import type { ToolCategory } from './lib/toolsRegistry';
+import { UploadCloud, LayoutGrid, List, ArrowLeft, ShieldCheck, Menu } from 'lucide-react';
 
 export function App() {
   const [theme, toggleTheme] = useTheme();
+  const [uiMode, setUiMode] = useUiMode();
+  const [activeView, setActiveView] = useState<string>('dashboard');
+  const [selectedCategory, setSelectedCategory] = useState<ToolCategory>('all');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // Compression engine state
   const [items, setItems] = useState<FileItem[]>([]);
-  const [activeTab, setActiveTab] = useState<ToolTab>('all');
+  const [activeTab] = useState<ToolTab>('all');
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [previewItem, setPreviewItem] = useState<FileItem | null>(null);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [isWindowDragging, setIsWindowDragging] = useState(false);
+
+  // Prevent background scroll and page shift when mobile drawer is open
+  useEffect(() => {
+    if (isMobileMenuOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isMobileMenuOpen]);
 
   const addToast = useCallback((message: string, type: ToastMessage['type'] = 'info') => {
     const id = `${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
@@ -37,7 +75,7 @@ export function App() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  // Add files to queue with validation
+  // Add files to compression queue
   const handleFilesAdded = useCallback(
     async (newFiles: File[]) => {
       const newItems: FileItem[] = [];
@@ -77,11 +115,12 @@ export function App() {
               };
               bitmap.close();
             } catch {
-              // Ignore bitmap load errors for unusual formats
+              // Ignore
             }
           }
         }
 
+        const isDoc = file.name.toLowerCase().endsWith('.doc');
         newItems.push({
           id,
           file,
@@ -92,6 +131,7 @@ export function App() {
           targetMode: 'target_size',
           targetSize: defaultTargetBytes,
           targetPercentage: 50,
+          outputFormat: isDoc ? 'application/pdf' : undefined,
           status: 'idle',
           progress: 0,
           originalPreviewUrl: previewUrl,
@@ -104,20 +144,21 @@ export function App() {
       }
       if (skippedUnsupported > 0) {
         addToast(
-          `Skipped ${skippedUnsupported} unsupported file(s). Supported: JPG, PNG, WebP, AVIF, SVG, GIF, BMP, PDF, DOCX.`,
+          `Skipped ${skippedUnsupported} unsupported file(s).`,
           'error'
         );
       }
 
       if (newItems.length > 0) {
         setItems((prev) => [...prev, ...newItems]);
-        addToast(`Added ${newItems.length} file(s) to queue.`, 'info');
+        addToast(`Added ${newItems.length} file(s) to compression queue.`, 'info');
+        setActiveView('compress-pdf');
       }
     },
     [addToast]
   );
 
-  // Full-window drag and drop listener
+  // Drag and drop listeners
   useEffect(() => {
     let dragCounter = 0;
 
@@ -164,7 +205,23 @@ export function App() {
     };
   }, [handleFilesAdded]);
 
-  // Update target size or mode
+  // Keyboard shortcut Ctrl+K
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        const searchInput = document.querySelector('input[placeholder*="Search"]') as HTMLInputElement | null;
+        if (searchInput) {
+          searchInput.focus();
+        } else {
+          setActiveView('dashboard');
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   const handleUpdateTarget = useCallback(
     (id: string, targetBytes: number, mode: TargetMode, percentage: number) => {
       setItems((prev) =>
@@ -183,19 +240,11 @@ export function App() {
     []
   );
 
-  const handleUpdateItem = useCallback((id: string, updates: Partial<FileItem>) => {
-    setItems((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, ...updates } : item))
-    );
-  }, []);
-
-  // Compress single file with URL memory cleanup
   const handleCompress = useCallback(
     async (id: string) => {
       const item = items.find((i) => i.id === id);
       if (!item) return;
 
-      // Clean up previous compressed preview URL if re-compressing
       if (item.compressedPreviewUrl) {
         URL.revokeObjectURL(item.compressedPreviewUrl);
       }
@@ -258,28 +307,19 @@ export function App() {
           `"${item.name}" compressed to ${formatBytes(result.blob.size)} (-${savings.percent}%) in ${elapsedSec}s.`,
           'success'
         );
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : 'Compression failed';
-        setItems((prev) =>
-          prev.map((i) =>
-            i.id === id ? { ...i, status: 'error', errorMessage: msg, progress: 0 } : i
-          )
-        );
-        addToast(`Failed to compress "${item.name}": ${msg}`, 'error');
-      }
-    },
-    [items, addToast]
+        } catch (err: unknown) {
+          const friendly = parseFriendlyError(err, 'Failed to compress document.');
+          setItems((prev) =>
+            prev.map((i) =>
+              i.id === id ? { ...i, status: 'error', errorMessage: friendly.message, progress: 0 } : i
+            )
+          );
+          addToast(`${friendly.title}: ${friendly.message}`, 'error');
+        }
+      },
+      [items, addToast]
   );
 
-  // Compress all pending
-  const handleCompressAll = useCallback(async () => {
-    const pendingItems = items.filter((i) => i.status !== 'completed');
-    for (const item of pendingItems) {
-      await handleCompress(item.id);
-    }
-  }, [items, handleCompress]);
-
-  // Remove single item with memory cleanup
   const handleRemove = useCallback((id: string) => {
     setItems((prev) => {
       const item = prev.find((i) => i.id === id);
@@ -291,17 +331,21 @@ export function App() {
     });
   }, []);
 
-  // Clear all items with memory cleanup
+  const handleCompressAll = useCallback(async () => {
+    const pendingItems = items.filter((i) => i.status !== 'completed');
+    for (const item of pendingItems) {
+      await handleCompress(item.id);
+    }
+  }, [items, handleCompress]);
+
   const handleClearAll = useCallback(() => {
     items.forEach((item) => {
       if (item.originalPreviewUrl) URL.revokeObjectURL(item.originalPreviewUrl);
       if (item.compressedPreviewUrl) URL.revokeObjectURL(item.compressedPreviewUrl);
     });
     setItems([]);
-    addToast('Cleared queue.', 'info');
-  }, [items, addToast]);
+  }, [items]);
 
-  // Apply batch preset
   const handleApplyPresetAll = useCallback(
     (targetBytes: number) => {
       setItems((prev) =>
@@ -320,28 +364,19 @@ export function App() {
     [addToast]
   );
 
-  // Convert all images format
   const handleConvertAllFormat = useCallback(
     (format: OutputFormat) => {
       setItems((prev) =>
-        prev.map((i) =>
-          i.category === 'image' || i.category === 'svg'
-            ? { ...i, outputFormat: format }
-            : i
-        )
+        prev.map((item) => ({
+          ...item,
+          outputFormat: format,
+        }))
       );
-      const label =
-        format === 'original'
-          ? 'Original'
-          : format === 'application/pdf'
-          ? 'PDF'
-          : format.replace('image/', '').toUpperCase();
-      addToast(`Set queued images to convert to ${label}.`, 'info');
+      addToast(`Set target format to ${format || 'original'} for all items`, 'info');
     },
     [addToast]
   );
 
-  // Merge all images into a consolidated single PDF
   const handleMergeAllToPdf = useCallback(async () => {
     const imageItems = items.filter(
       (i) => (i.category === 'image' || i.category === 'svg') && (i.compressedBlob || i.file)
@@ -358,16 +393,19 @@ export function App() {
       }));
       const mergedBlob = await mergeImagesToPdf(inputFiles);
       saveAs(mergedBlob, 'merged_images.pdf');
-      addToast(`Successfully merged ${imageItems.length} images into merged_images.pdf!`, 'success');
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'PDF merge failed';
-      addToast(`Failed to merge images: ${msg}`, 'error');
+      addToast('Images merged to PDF successfully!', 'success');
+    } catch {
+      addToast('Failed to merge images to PDF.', 'error');
     }
   }, [items, addToast]);
 
-  const isAnyCompressing = items.some((i) => i.status === 'compressing');
+  const handleUpdateItem = useCallback((id: string, updates: Partial<FileItem>) => {
+    setItems((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, ...updates } : item))
+    );
+  }, []);
 
-  // Filter items based on active tool tab
+  const isAnyCompressing = items.some((i) => i.status === 'compressing');
   const filteredItems = items.filter((item) => {
     if (activeTab === 'images') return item.category === 'image' || item.category === 'svg';
     if (activeTab === 'pdf') return item.category === 'pdf';
@@ -376,158 +414,338 @@ export function App() {
   });
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#f8fafc] dark:bg-[#090a0f] text-slate-900 dark:text-zinc-100 selection:bg-blue-600 selection:text-white relative transition-colors duration-250">
-      {/* Ambient background aura */}
-      <div className="ambient-glow" />
+    <div className={`min-h-screen text-stone-900 dark:text-zinc-100 flex flex-col transition-colors duration-300 relative overflow-x-clip ${
+      uiMode === 'glassy'
+        ? 'bg-transparent'
+        : 'bg-[#fbf9f4] dark:bg-[#0b0e14]'
+    }`}>
+      {/* Dynamic Theme Background Layers */}
+      {uiMode === 'glassy' ? (
+        <div className="fixed inset-0 pointer-events-none -z-10 overflow-hidden" aria-hidden="true">
+          {/* Animated Pastel Gradient Mesh */}
+          <div className="absolute inset-0 bg-glassy-mesh transition-opacity duration-700" />
+          
+          {/* Ambient Glowing Glass Orbs */}
+          {/* Top-Left Rose/Peach Orb */}
+          <div className="absolute -top-32 -left-32 w-[520px] h-[520px] rounded-full bg-gradient-to-br from-rose-300/40 via-pink-200/30 to-transparent dark:from-purple-900/30 dark:via-pink-900/20 dark:to-transparent blur-3xl animate-float-slow" />
+          
+          {/* Top-Right Lavender/Violet Orb */}
+          <div className="absolute top-10 -right-28 w-[580px] h-[580px] rounded-full bg-gradient-to-br from-purple-300/35 via-indigo-200/25 to-transparent dark:from-indigo-900/30 dark:via-purple-900/20 dark:to-transparent blur-3xl animate-float-reverse" />
+          
+          {/* Bottom-Left Cyan/Sky Blue Orb */}
+          <div className="absolute -bottom-40 left-1/4 w-[620px] h-[620px] rounded-full bg-gradient-to-tr from-sky-300/35 via-teal-200/20 to-transparent dark:from-blue-900/25 dark:via-cyan-900/15 dark:to-transparent blur-3xl animate-float-medium" />
 
-      <Navbar
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
-        onOpenGuide={() => setIsGuideOpen(true)}
-        theme={theme}
-        onToggleTheme={toggleTheme}
-      />
-
-      {/* Full-Window Drag and Drop Overlay */}
-      {isWindowDragging && (
-        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center p-6 pointer-events-none animate-in fade-in duration-100 border-2 border-dashed border-blue-500 bg-white/90 dark:bg-black/85 backdrop-blur-md">
-          <div className="w-16 h-16 rounded-2xl bg-blue-500/10 border border-blue-500/40 flex items-center justify-center text-blue-600 dark:text-blue-400 mb-4 animate-bounce shadow-sm">
-            <UploadCloud className="w-8 h-8" />
-          </div>
-          <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-zinc-100">Drop files anywhere to queue</h2>
-          <p className="text-xs text-slate-500 dark:text-zinc-400 mt-1 font-mono">JPG, PNG, WebP, AVIF, SVG, GIF, BMP, PDF, DOCX</p>
+          {/* Bottom-Right Warm Amber/Rose Orb */}
+          <div className="absolute -bottom-24 -right-24 w-[480px] h-[480px] rounded-full bg-gradient-to-tl from-amber-200/30 via-rose-200/20 to-transparent dark:from-rose-950/20 dark:via-purple-950/20 dark:to-transparent blur-3xl animate-float-slow" />
+        </div>
+      ) : (
+        /* Classic Background with Dot Pattern and Ambient Glow */
+        <div className="fixed inset-0 pointer-events-none -z-10 overflow-hidden" aria-hidden="true">
+          <div className="absolute inset-0 bg-grid-pattern opacity-60" />
+          <div className="ambient-glow" />
         </div>
       )}
 
-      <main className="flex-1 max-w-4xl mx-auto w-full px-4 sm:px-6 py-8 sm:py-12 relative z-10">
-        {/* Modern Studio Hero */}
-        <div className="mb-8">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-mono font-medium mb-3.5 border transition-colors shadow-2xs
-            bg-blue-50/80 border-blue-200/80 text-blue-700
-            dark:bg-blue-500/10 dark:border-blue-500/20 dark:text-blue-400"
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-            <span>ShrinkByte • 100% In-Browser Compression & Conversion</span>
+      {/* Full-Window Drag and Drop Overlay */}
+      {isWindowDragging && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center p-6 pointer-events-none animate-in fade-in duration-100 border-2 border-dashed border-indigo-500 bg-white/95 dark:bg-[#0b0e14]/95 backdrop-blur-md">
+          <div className="w-16 h-16 rounded-3xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center text-indigo-600 dark:text-indigo-400 mb-4 animate-bounce shadow-md">
+            <UploadCloud className="w-8 h-8" />
           </div>
-
-          <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 dark:text-zinc-100 tracking-tight mb-2.5">
-            Compress & convert files to an exact target size
-          </h1>
-          <p className="text-slate-600 dark:text-zinc-400 text-sm sm:text-base max-w-2xl leading-relaxed">
-            Need a 5 MB file compressed down to 2 MB? Specify the exact target size and the local bisection engine hits within 1% of your target. Images, SVGs, PDFs, and Word documents processed 100% locally with zero server transit.
+          <h2 className="text-xl font-bold tracking-tight text-stone-900 dark:text-white">
+            Drop files anywhere to queue
+          </h2>
+          <p className="text-xs text-stone-500 dark:text-zinc-400 mt-1 font-mono">
+            PDF, JPG, PNG, WebP, AVIF, SVG, DOCX
           </p>
         </div>
+      )}
 
-        {/* Upload Deck */}
-        <div className="mb-8">
-          <Dropzone
-            activeTab={activeTab}
-            hasItems={items.length > 0}
-            onFilesAdded={handleFilesAdded}
-          />
+      {/* Mobile Top Navigation Header */}
+      <header className={`md:hidden flex items-center justify-between px-4 py-3 border-b sticky top-0 z-30 transition-all ${
+        uiMode === 'glassy'
+          ? 'glass-sidebar border-white/60 dark:border-white/10'
+          : 'bg-white/90 dark:bg-[#12161f]/90 border-stone-200/80 dark:border-[#202735] backdrop-blur-md'
+      }`}>
+        <div 
+          onClick={() => { setActiveView('dashboard'); setSelectedCategory('all'); }}
+          className="flex items-center gap-2.5 cursor-pointer"
+        >
+          <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-amber-500 via-rose-500 to-indigo-600 flex items-center justify-center text-white shadow-xs font-black text-sm">
+            D
+          </div>
+          <span className="font-extrabold text-base tracking-tight text-stone-900 dark:text-white">
+            DocuKit
+          </span>
         </div>
 
-        {/* Batch Controls (when files are loaded) */}
-        {items.length > 0 && (
-          <BatchControls
-            items={items}
-            onCompressAll={handleCompressAll}
-            onClearAll={handleClearAll}
-            onApplyPresetAll={handleApplyPresetAll}
-            onConvertAllFormat={handleConvertAllFormat}
-            onMergeAllToPdf={handleMergeAllToPdf}
-            isAnyCompressing={isAnyCompressing}
-          />
-        )}
+        <button
+          onClick={() => setIsMobileMenuOpen(true)}
+          className="p-2 rounded-xl text-stone-600 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-[#181d28] border border-stone-200 dark:border-white/5 cursor-pointer"
+          aria-label="Open Tools Navigation"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
+      </header>
 
-        {/* File Queue */}
-        {items.length > 0 && (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between text-xs font-mono text-slate-500 dark:text-zinc-400 px-1">
-              <span>
-                Queue ({filteredItems.length} {filteredItems.length === 1 ? 'file' : 'files'}
-                {activeTab !== 'all' ? ` in ${activeTab}` : ''})
-              </span>
+      {/* Main Layout Container with Responsive Sidebar */}
+      <div className="flex-1 w-full max-w-[1540px] mx-auto px-3 sm:px-4 md:px-6 py-3 sm:py-5 flex flex-col md:flex-row md:gap-6 items-start">
+        {/* Responsive Sidebar (Desktop Sticky + Mobile Drawer) */}
+        <Sidebar
+          activeView={activeView}
+          onSelectView={setActiveView}
+          selectedCategory={selectedCategory}
+          onSelectCategory={(cat) => {
+            setSelectedCategory(cat);
+            setActiveView('dashboard');
+          }}
+          theme={theme}
+          onToggleTheme={toggleTheme}
+          uiMode={uiMode}
+          onChangeUiMode={setUiMode}
+          isOpenMobile={isMobileMenuOpen}
+          onCloseMobile={() => setIsMobileMenuOpen(false)}
+        />
 
-              <div className="flex items-center gap-3">
-                <span>
-                  {items.filter((i) => i.status === 'completed').length} / {items.length} compressed
-                </span>
+        {/* Dynamic Center Stage with Smooth Transitions */}
+        <main key={activeView} className="flex-1 w-full min-w-0 page-transition-enter">
+          {activeView === 'dashboard' && (
+            <Dashboard
+              onSelectTool={(toolId) => setActiveView(toolId)}
+              selectedCategory={selectedCategory}
+              onSelectCategory={setSelectedCategory}
+              onQuickUpload={handleFilesAdded}
+            />
+          )}
 
-                {/* View switcher: Grid vs List */}
-                <div className="flex items-center p-0.5 rounded-xl border transition-colors
-                  bg-slate-100 border-slate-200 text-slate-600
-                  dark:bg-[#131518] dark:border-[#23272e] dark:text-zinc-400"
+          {activeView === 'merge-pdf' && (
+            <MergePdfTool
+              onBack={() => setActiveView('dashboard')}
+              onToast={addToast}
+            />
+          )}
+
+          {activeView === 'split-pdf' && (
+            <SplitPdfTool
+              onBack={() => setActiveView('dashboard')}
+              onToast={addToast}
+            />
+          )}
+
+          {activeView === 'scan-pdf' && (
+            <ScanToPdfTool
+              onBack={() => setActiveView('dashboard')}
+              onToast={addToast}
+            />
+          )}
+
+          {activeView === 'sign-watermark-pdf' && (
+            <SignWatermarkTool
+              onBack={() => setActiveView('dashboard')}
+              onToast={addToast}
+            />
+          )}
+
+          {activeView === 'rotate-pdf' && (
+            <RotatePdfTool
+              onBack={() => setActiveView('dashboard')}
+              onToast={addToast}
+            />
+          )}
+
+          {activeView === 'delete-pages' && (
+            <DeletePagesTool
+              onBack={() => setActiveView('dashboard')}
+              onToast={addToast}
+            />
+          )}
+
+          {activeView === 'page-numbers' && (
+            <PageNumbersTool
+              onBack={() => setActiveView('dashboard')}
+              onToast={addToast}
+            />
+          )}
+
+          {activeView === 'pdf-to-images' && (
+            <PdfToImagesTool
+              onBack={() => setActiveView('dashboard')}
+              onToast={addToast}
+            />
+          )}
+
+          {activeView === 'flatten-pdf' && (
+            <FlattenPdfTool
+              onBack={() => setActiveView('dashboard')}
+              onToast={addToast}
+            />
+          )}
+
+          {activeView === 'text-to-pdf' && (
+            <TextToPdfTool
+              onBack={() => setActiveView('dashboard')}
+              onToast={addToast}
+            />
+          )}
+
+          {activeView === 'pdf-to-office' && (
+            <PdfToOfficeTool
+              onBack={() => setActiveView('dashboard')}
+              onToast={addToast}
+            />
+          )}
+
+          {activeView === 'ai-summarizer' && (
+            <AiSummarizerTool
+              onBack={() => setActiveView('dashboard')}
+              onToast={addToast}
+            />
+          )}
+
+          {activeView === 'ocr-pdf' && (
+            <OcrPdfTool
+              onBack={() => setActiveView('dashboard')}
+              onToast={addToast}
+            />
+          )}
+
+          {activeView === 'html-to-pdf' && (
+            <HtmlToPdfTool
+              onBack={() => setActiveView('dashboard')}
+              onToast={addToast}
+            />
+          )}
+
+          {activeView === 'edit-pdf' && (
+            <EditPdfTool
+              onBack={() => setActiveView('dashboard')}
+              onToast={addToast}
+            />
+          )}
+
+          {activeView === 'unlock-pdf' && (
+            <UnlockPdfTool
+              onBack={() => setActiveView('dashboard')}
+              onToast={addToast}
+            />
+          )}
+
+          {activeView === 'compress-pdf' && (
+            <div className="space-y-6 max-w-5xl mx-auto animate-in fade-in duration-300">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <button
+                  onClick={() => setActiveView('dashboard')}
+                  className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-sm font-medium
+                    bg-white/80 border border-stone-200 text-stone-700 hover:bg-stone-100 hover:text-stone-900 shadow-xs
+                    dark:bg-[#161a23] dark:border-white/10 dark:text-zinc-300 dark:hover:bg-[#1f2430] dark:hover:text-white transition-all cursor-pointer"
                 >
-                  <button
-                    type="button"
-                    onClick={() => setViewMode('grid')}
-                    className={`p-1.5 rounded-lg transition cursor-pointer ${
-                      viewMode === 'grid'
-                        ? 'bg-white text-slate-900 dark:bg-[#22252c] dark:text-zinc-100 shadow-xs font-semibold'
-                        : 'text-slate-500 hover:text-slate-900 dark:text-zinc-500 dark:hover:text-zinc-300'
-                    }`}
-                    title="Grid view"
-                  >
-                    <LayoutGrid className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setViewMode('list')}
-                    className={`p-1.5 rounded-lg transition cursor-pointer ${
-                      viewMode === 'list'
-                        ? 'bg-white text-slate-900 dark:bg-[#22252c] dark:text-zinc-100 shadow-xs font-semibold'
-                        : 'text-slate-500 hover:text-slate-900 dark:text-zinc-500 dark:hover:text-zinc-300'
-                    }`}
-                    title="List view"
-                  >
-                    <List className="w-3.5 h-3.5" />
-                  </button>
+                  <ArrowLeft className="w-4 h-4" />
+                  <span>All Tools</span>
+                </button>
+
+                <div className="flex items-center gap-2 text-xs font-medium px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span>100% On-Device Local Processing</span>
                 </div>
               </div>
-            </div>
 
-            {filteredItems.length === 0 ? (
-              <div className="p-8 text-center rounded-2xl border text-xs font-mono shadow-sm
-                bg-white border-slate-200 text-slate-500
-                dark:bg-[#0c0d10] dark:border-[#1f2228] dark:text-zinc-400"
-              >
-                <p>No files match the currently selected category ({activeTab}).</p>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('all')}
-                  className="mt-2 text-blue-600 dark:text-blue-400 hover:underline cursor-pointer font-medium"
-                >
-                  Show all {items.length} file(s)
-                </button>
+              <div>
+                <h1 className="text-2xl sm:text-3xl font-extrabold text-stone-900 dark:text-white tracking-tight">
+                  Compress Files to Exact Target Size
+                </h1>
+                <p className="text-sm text-stone-600 dark:text-zinc-400 mt-1">
+                  Specify target sizes for PDFs, images, DOCX and SVGs with local bisection precision. Zero server transit.
+                </p>
               </div>
-            ) : viewMode === 'grid' ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                {filteredItems.map((item) => (
-                  <CompressionItemCard
-                    key={item.id}
-                    item={item}
-                    onUpdateTarget={handleUpdateTarget}
-                    onUpdateItem={handleUpdateItem}
-                    onCompress={handleCompress}
-                    onRemove={handleRemove}
-                    onPreview={(previewItem) => setPreviewItem(previewItem)}
-                  />
-                ))}
-              </div>
-            ) : (
-              <CompressionListView
-                items={filteredItems}
-                onUpdateTarget={handleUpdateTarget}
-                onUpdateItem={handleUpdateItem}
-                onCompress={handleCompress}
-                onRemove={handleRemove}
-                onPreview={(previewItem) => setPreviewItem(previewItem)}
+
+              {/* Upload Dropzone */}
+              <Dropzone
+                activeTab={activeTab}
+                hasItems={items.length > 0}
+                onFilesAdded={handleFilesAdded}
               />
-            )}
-          </div>
-        )}
-      </main>
+
+              {/* Batch Controls */}
+              {items.length > 0 && (
+                <BatchControls
+                  items={items}
+                  onCompressAll={handleCompressAll}
+                  onClearAll={handleClearAll}
+                  onApplyPresetAll={handleApplyPresetAll}
+                  onConvertAllFormat={handleConvertAllFormat}
+                  onMergeAllToPdf={handleMergeAllToPdf}
+                  isAnyCompressing={isAnyCompressing}
+                />
+              )}
+
+              {/* File Queue */}
+              {items.length > 0 && (
+                <div className="space-y-3 pt-2">
+                  <div className="flex items-center justify-between text-xs font-mono text-stone-500 dark:text-zinc-400 px-1">
+                    <span>Queue ({filteredItems.length} files)</span>
+                    <div className="flex items-center gap-3">
+                      <span>
+                        {items.filter((i) => i.status === 'completed').length} / {items.length} compressed
+                      </span>
+                      <div className="flex items-center p-0.5 rounded-xl border transition-colors bg-stone-100 border-stone-200 text-stone-600 dark:bg-[#131518] dark:border-[#23272e] dark:text-zinc-400">
+                        <button
+                          type="button"
+                          onClick={() => setViewMode('grid')}
+                          className={`p-1.5 rounded-lg transition cursor-pointer ${
+                            viewMode === 'grid'
+                              ? 'bg-white text-stone-900 dark:bg-[#22252c] dark:text-zinc-100 shadow-xs font-semibold'
+                              : 'text-stone-500 hover:text-stone-900 dark:text-zinc-500 dark:hover:text-zinc-300'
+                          }`}
+                          title="Grid view"
+                        >
+                          <LayoutGrid className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setViewMode('list')}
+                          className={`p-1.5 rounded-lg transition cursor-pointer ${
+                            viewMode === 'list'
+                              ? 'bg-white text-stone-900 dark:bg-[#22252c] dark:text-zinc-100 shadow-xs font-semibold'
+                              : 'text-stone-500 hover:text-stone-900 dark:text-zinc-500 dark:hover:text-zinc-300'
+                          }`}
+                          title="List view"
+                        >
+                          <List className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {viewMode === 'grid' ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                      {filteredItems.map((item) => (
+                        <CompressionItemCard
+                          key={item.id}
+                          item={item}
+                          onUpdateTarget={handleUpdateTarget}
+                          onUpdateItem={handleUpdateItem}
+                          onCompress={handleCompress}
+                          onRemove={handleRemove}
+                          onPreview={(previewItem) => setPreviewItem(previewItem)}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <CompressionListView
+                      items={filteredItems}
+                      onUpdateTarget={handleUpdateTarget}
+                      onUpdateItem={handleUpdateItem}
+                      onCompress={handleCompress}
+                      onRemove={handleRemove}
+                      onPreview={(previewItem) => setPreviewItem(previewItem)}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </main>
+      </div>
 
       {/* Comparison Modal */}
       {previewItem && (
@@ -545,6 +763,7 @@ export function App() {
       {/* Toast Notifications */}
       <ToastContainer toasts={toasts} onDismiss={removeToast} />
 
+      {/* Footer with On-Device Security */}
       <Footer />
     </div>
   );

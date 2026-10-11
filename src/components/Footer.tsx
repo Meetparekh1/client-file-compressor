@@ -1,22 +1,34 @@
 import React from 'react';
-import { Shield, Lock } from 'lucide-react';
+import { ShieldCheck, Lock, Cpu, Sparkles } from 'lucide-react';
 
 export const Footer: React.FC = () => {
   return (
-    <footer className="border-t py-6 text-xs transition-colors font-mono mt-auto
-      bg-white border-slate-200 text-slate-500
-      dark:bg-[#090a0f] dark:border-[#1a1c22] dark:text-zinc-500"
-    >
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
-        <div className="flex items-center gap-2">
-          <Shield className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-          <span>ShrinkByte: Zero server uploads. No files or telemetry ever leave this device.</span>
+    <footer className="mt-12 py-6 border-t border-stone-200/80 dark:border-[#202735] text-xs transition-colors">
+      <div className="max-w-6xl mx-auto px-4 flex flex-col md:flex-row items-center justify-between gap-4 text-stone-500 dark:text-zinc-400">
+        
+        {/* Shield and On-Device guarantee */}
+        <div className="flex items-center gap-2.5">
+          <div className="p-1 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+            <ShieldCheck className="w-4 h-4" />
+          </div>
+          <span className="font-medium text-stone-700 dark:text-zinc-300">
+            100% In-Browser Engine: All files are processed strictly inside your device's memory.
+          </span>
         </div>
 
-        <div className="flex items-center gap-3 text-slate-400 dark:text-zinc-400">
-          <span className="flex items-center gap-1">
-            <Lock className="w-3 h-3" />
-            100% In-Browser Engine
+        {/* Feature badges */}
+        <div className="flex flex-wrap items-center gap-3 font-mono text-[11px]">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-stone-100 dark:bg-[#161a23] border border-stone-200/80 dark:border-white/5">
+            <Lock className="w-3 h-3 text-indigo-500" />
+            Zero Server Uploads
+          </span>
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-stone-100 dark:bg-[#161a23] border border-stone-200/80 dark:border-white/5">
+            <Cpu className="w-3 h-3 text-emerald-500" />
+            Client-Side WASM & Web APIs
+          </span>
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-stone-100 dark:bg-[#161a23] border border-stone-200/80 dark:border-white/5">
+            <Sparkles className="w-3 h-3 text-amber-500" />
+            No Watermarks
           </span>
         </div>
       </div>

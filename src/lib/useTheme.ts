@@ -6,7 +6,7 @@ export function useTheme(): [Theme, () => void] {
   const [theme, setTheme] = useState<Theme>(() => {
     // Check localStorage first
     if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('shrinkbyte-theme') || localStorage.getItem('zeroupload-theme');
+      const stored = localStorage.getItem('local-file-engine-theme') || localStorage.getItem('shrinkbyte-theme') || localStorage.getItem('zeroupload-theme');
       if (stored === 'light' || stored === 'dark') {
         return stored;
       }
@@ -30,7 +30,7 @@ export function useTheme(): [Theme, () => void] {
       root.classList.add('light');
       root.style.colorScheme = 'light';
     }
-    localStorage.setItem('shrinkbyte-theme', theme);
+    localStorage.setItem('local-file-engine-theme', theme);
   }, [theme]);
 
   const toggleTheme = useCallback(() => {
