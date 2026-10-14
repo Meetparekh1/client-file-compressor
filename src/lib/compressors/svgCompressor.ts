@@ -256,7 +256,15 @@ export async function compressSvgToTarget(
   file: File | Blob,
   options: CompressionOptions
 ): Promise<CompressionResult> {
-  const { targetSizeBytes, onProgress, outputFormat } = options;
+  const { targetSizeBytes, onProgress, outputFormat, signal } = options;
+
+  if (signal?.aborted) {
+    throw new DOMException('Compression cancelled by user', 'AbortError');
+  }
+
+  if (file.size <= 0) {
+    throw new Error('File is empty (0 bytes).');
+  }
 
   onProgress?.(15, 'Reading SVG markup...');
   const text = await file.text();

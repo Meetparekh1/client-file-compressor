@@ -97,7 +97,7 @@ export const EditPdfTool: React.FC<EditPdfToolProps> = ({ onBack, onToast }) => 
 
       pdf.save(file?.name.replace('.pdf', '_edited.pdf') || 'edited.pdf');
       onToast('PDF Exported Successfully!', 'success');
-    } catch (e) {
+    } catch {
       onToast('Failed to export', 'error');
     } finally {
       setIsProcessing(false);

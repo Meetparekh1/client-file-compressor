@@ -6,8 +6,21 @@ interface FormatGuideModalProps {
 }
 
 export const FormatGuideModal: React.FC<FormatGuideModalProps> = ({ onClose }) => {
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in duration-150">
+    <div 
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="format-guide-title"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in duration-150"
+    >
       <div className="relative w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] border transition-colors
         bg-white border-slate-200 dark:bg-[#0c0d10] dark:border-[#22252c]"
       >
@@ -18,7 +31,7 @@ export const FormatGuideModal: React.FC<FormatGuideModalProps> = ({ onClose }) =
         >
           <div className="flex items-center gap-2">
             <Terminal className="w-4 h-4 text-blue-600 dark:text-zinc-300" />
-            <h3 className="font-semibold text-sm">Format & Engine Specifications</h3>
+            <h3 id="format-guide-title" className="font-semibold text-sm">Format & Engine Specifications</h3>
           </div>
           <button
             onClick={onClose}

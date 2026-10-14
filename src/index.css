@@ -399,3 +399,15 @@ input[type="range"]::-moz-range-thumb {
   }
 }
 
+/* Accessible focus visible outlines for keyboard users */
+:focus-visible {
+  outline: 2px solid #6366f1 !important;
+  outline-offset: 2px !important;
+}
+
+.dark :focus-visible {
+  outline: 2px solid #818cf8 !important;
+  outline-offset: 2px !important;
+}
+
+

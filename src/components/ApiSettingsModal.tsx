@@ -38,15 +38,30 @@ export const ApiSettingsModal: React.FC<ApiSettingsModalProps> = ({ isOpen, onCl
     onClose();
   };
 
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+    <div 
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="api-settings-title"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150"
+    >
       <div className="w-full max-w-md rounded-2xl p-6 border shadow-xl relative transition-all
         bg-white border-slate-200 text-slate-900
         dark:bg-[#0e1014] dark:border-[#21242c] dark:text-zinc-100"
       >
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-[#1a1c22] dark:hover:text-zinc-200 transition"
+          aria-label="Close API settings"
+          className="absolute top-4 right-4 p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-[#1a1c22] dark:hover:text-zinc-200 transition cursor-pointer"
         >
           <X className="w-4 h-4" />
         </button>

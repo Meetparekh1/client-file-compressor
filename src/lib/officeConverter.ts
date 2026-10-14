@@ -315,6 +315,10 @@ export async function convertPdfToDocx(
   } = {}
 ): Promise<Blob> {
   const { pages } = await extractAndAnalyzePdf(file, options.onProgress);
+  if (!pages || pages.length === 0) {
+    throw new Error('PDF conversion failed: document contains no extractable pages.');
+  }
+
   const zip = new JSZip();
 
   // 1. [Content_Types].xml
@@ -703,6 +707,10 @@ export async function convertPdfToPptx(
   } = {}
 ): Promise<Blob> {
   const { pages } = await extractAndAnalyzePdf(file, options.onProgress);
+  if (!pages || pages.length === 0) {
+    throw new Error('PDF conversion failed: document contains no extractable pages.');
+  }
+
   const zip = new JSZip();
 
   let contentTypesSlideOverrides = '';

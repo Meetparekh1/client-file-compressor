@@ -24,13 +24,22 @@ export const OcrPdfTool: React.FC<OcrPdfToolProps> = ({ onBack, onToast }) => {
   const [progressStage, setProgressStage] = useState('');
   const [progressPercent, setProgressPercent] = useState(0);
   const [extractedText, setExtractedText] = useState<string>('');
+  const [throughput, setThroughput] = useState<{
+    totalPages: number;
+    totalCharacters: number;
+    durationMs: number;
+    pagesPerSecond: number;
+    charsPerSecond: number;
+  } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0];
     if (selected) {
       setFile(selected);
       setExtractedText('');
+      setThroughput(null);
     }
   };
 
@@ -40,22 +49,50 @@ export const OcrPdfTool: React.FC<OcrPdfToolProps> = ({ onBack, onToast }) => {
     if (dropped) {
       setFile(dropped);
       setExtractedText('');
+      setThroughput(null);
+    }
+  };
+
+  const handleCancelOcr = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+      setIsProcessing(false);
+      setProgressStage('');
+      setProgressPercent(0);
+      onToast('OCR extraction cancelled.', 'info');
     }
   };
 
   const handleOcr = async () => {
     if (!file) return;
+    const ac = new AbortController();
+    abortControllerRef.current = ac;
     setIsProcessing(true);
+    setThroughput(null);
+
     try {
-      const { text } = await ocrScannedPdf(file, (stage, percent) => {
-        setProgressStage(stage);
-        setProgressPercent(percent);
-      });
-      setExtractedText(text);
+      const result = await ocrScannedPdf(
+        file,
+        (stage, percent) => {
+          setProgressStage(stage);
+          setProgressPercent(percent);
+        },
+        { signal: ac.signal }
+      );
+      setExtractedText(result.text);
+      if (result.throughput) {
+        setThroughput(result.throughput);
+      }
       onToast('OCR Extraction completed successfully.', 'success');
-    } catch (err: any) {
-      onToast(err.message || 'OCR failed', 'error');
+    } catch (err: unknown) {
+      if (ac.signal.aborted) {
+        return;
+      }
+      const msg = err instanceof Error ? err.message : 'OCR failed';
+      onToast(msg, 'error');
     } finally {
+      abortControllerRef.current = null;
       setIsProcessing(false);
     }
   };
@@ -114,13 +151,22 @@ export const OcrPdfTool: React.FC<OcrPdfToolProps> = ({ onBack, onToast }) => {
           </div>
 
           {isProcessing && (
-            <div className="p-4 rounded-2xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-800/40 space-y-2">
+            <div className="p-4 rounded-2xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-800/40 space-y-3">
               <div className="flex items-center justify-between text-xs font-semibold text-emerald-700 dark:text-emerald-300">
                 <span className="flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> {progressStage}</span>
                 <span>{progressPercent}%</span>
               </div>
               <div className="w-full bg-emerald-200/50 dark:bg-emerald-900/40 h-2 rounded-full overflow-hidden">
                 <div className="bg-emerald-600 h-full rounded-full transition-all duration-300" style={{ width: `${progressPercent}%` }} />
+              </div>
+              <div className="flex justify-end pt-1">
+                <button
+                  type="button"
+                  onClick={handleCancelOcr}
+                  className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-rose-50 text-rose-700 hover:bg-rose-100 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-900/50 border border-rose-200/60 dark:border-rose-800/50 transition cursor-pointer"
+                >
+                  Cancel Extraction
+                </button>
               </div>
             </div>
           )}
@@ -129,6 +175,19 @@ export const OcrPdfTool: React.FC<OcrPdfToolProps> = ({ onBack, onToast }) => {
             <button onClick={handleOcr} className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl text-sm font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-500/20 transition-all cursor-pointer">
               <Scan className="w-4 h-4" /> Start OCR Extraction
             </button>
+          )}
+
+          {throughput && (
+            <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex flex-wrap items-center justify-between gap-3 text-xs font-mono text-emerald-800 dark:text-emerald-300">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold">Throughput:</span>
+                <span>{throughput.charsPerSecond} chars/s</span>
+                <span>({throughput.pagesPerSecond} pages/s)</span>
+              </div>
+              <div className="text-stone-500 dark:text-zinc-400 text-[11px]">
+                Processed {throughput.totalPages} page(s) ({throughput.totalCharacters} chars) in {(throughput.durationMs / 1000).toFixed(2)}s
+              </div>
+            </div>
           )}
 
           {extractedText && (

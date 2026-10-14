@@ -32,7 +32,15 @@ export async function compressPdfToTarget(
   file: File | Blob,
   options: CompressionOptions
 ): Promise<CompressionResult> {
-  const { targetSizeBytes, onProgress } = options;
+  const { targetSizeBytes, onProgress, signal } = options;
+
+  if (signal?.aborted) {
+    throw new DOMException('Compression cancelled by user', 'AbortError');
+  }
+
+  if (file.size <= 0) {
+    throw new Error('File is empty (0 bytes).');
+  }
 
   if (file.size <= targetSizeBytes) {
     onProgress?.(100, 'Already within target size');
@@ -45,6 +53,10 @@ export async function compressPdfToTarget(
 
   onProgress?.(10, 'Reading PDF document...');
   const arrayBuffer = await file.arrayBuffer();
+
+  if (signal?.aborted) {
+    throw new DOMException('Compression cancelled by user', 'AbortError');
+  }
 
   const loadingTask = pdfjsLib.getDocument({
     data: new Uint8Array(arrayBuffer),
@@ -90,98 +102,123 @@ export async function compressPdfToTarget(
   const newPdfDoc = await PDFDocument.create();
   let iterations = 1;
 
+  // Reuse a single canvas across all pages instead of allocating numPages canvases
+  let reusableCanvas: HTMLCanvasElement | null = null;
+
   try {
     for (let pageNum = 1; pageNum <= numPages; pageNum++) {
-    const pageProgress = 20 + Math.round((pageNum / numPages) * 65);
-    onProgress?.(pageProgress, `Optimizing page ${pageNum} of ${numPages}...`);
-
-    const page = await pdf.getPage(pageNum);
-    const unscaledViewport = page.getViewport({ scale: 1.0 });
-    const renderViewport = page.getViewport({ scale: renderScale });
-
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.max(10, Math.floor(renderViewport.width));
-    canvas.height = Math.max(10, Math.floor(renderViewport.height));
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-
-    if (!ctx) {
-      // Fallback: create empty page matching dimensions
-      newPdfDoc.addPage([unscaledViewport.width, unscaledViewport.height]);
-      continue;
-    }
-
-    try {
-      // Render PDF page to Canvas
-      await page.render({
-        canvasContext: ctx,
-        viewport: renderViewport,
-      }).promise;
-
-      // Binary search quality for this page
-      let lowQ = 0.08;
-      let highQ = baseQuality;
-      let bestBlob: Blob | null = null;
-
-      for (let step = 0; step < 4; step++) {
-        iterations++;
-        const midQ = (lowQ + highQ) / 2;
-        try {
-          const blob = await canvasToBlobSafe(canvas, 'image/jpeg', midQ);
-          if (blob.size <= targetBytesPerPage) {
-            bestBlob = blob;
-            lowQ = midQ;
-          } else {
-            highQ = midQ;
-            bestBlob = blob;
-          }
-        } catch {
-          break;
-        }
+      if (signal?.aborted) {
+        throw new DOMException('Compression cancelled by user', 'AbortError');
       }
 
-      const finalPageBlob =
-        bestBlob ||
-        (await canvasToBlobSafe(canvas, 'image/jpeg', 0.35));
+      const pageProgress = 20 + Math.round((pageNum / numPages) * 65);
+      onProgress?.(pageProgress, `Optimizing page ${pageNum} of ${numPages}...`);
 
-      const pageImgBytes = await finalPageBlob.arrayBuffer();
-      const embeddedImage = await newPdfDoc.embedJpg(pageImgBytes);
+      const page = await pdf.getPage(pageNum);
+      const unscaledViewport = page.getViewport({ scale: 1.0 });
+      const renderViewport = page.getViewport({ scale: renderScale });
 
-      // Create new page with original unscaled physical dimensions (e.g. standard A4 / Letter)
-      const newPage = newPdfDoc.addPage([unscaledViewport.width, unscaledViewport.height]);
-      newPage.drawImage(embeddedImage, {
-        x: 0,
-        y: 0,
-        width: unscaledViewport.width,
-        height: unscaledViewport.height,
-      });
-    } finally {
-      // Clean up canvas and GPU memory
-      canvas.width = 0;
-      canvas.height = 0;
-      page.cleanup();
+      const targetW = Math.max(10, Math.floor(renderViewport.width));
+      const targetH = Math.max(10, Math.floor(renderViewport.height));
+
+      if (!reusableCanvas) {
+        reusableCanvas = document.createElement('canvas');
+      }
+      reusableCanvas.width = targetW;
+      reusableCanvas.height = targetH;
+      const ctx = reusableCanvas.getContext('2d', { willReadFrequently: true });
+
+      if (!ctx) {
+        // Fallback: create empty page matching dimensions
+        newPdfDoc.addPage([unscaledViewport.width, unscaledViewport.height]);
+        page.cleanup();
+        continue;
+      }
+
+      try {
+        // Render PDF page to Canvas
+        await page.render({
+          canvasContext: ctx,
+          viewport: renderViewport,
+        }).promise;
+
+        if (signal?.aborted) {
+          throw new DOMException('Compression cancelled by user', 'AbortError');
+        }
+
+        // Binary search quality for this page
+        let lowQ = 0.08;
+        let highQ = baseQuality;
+        let bestBlob: Blob | null = null;
+
+        for (let step = 0; step < 4; step++) {
+          if (signal?.aborted) {
+            throw new DOMException('Compression cancelled by user', 'AbortError');
+          }
+          iterations++;
+          const midQ = (lowQ + highQ) / 2;
+          try {
+            const blob = await canvasToBlobSafe(reusableCanvas, 'image/jpeg', midQ);
+            if (blob.size <= targetBytesPerPage) {
+              bestBlob = blob;
+              lowQ = midQ;
+            } else {
+              highQ = midQ;
+              bestBlob = blob;
+            }
+          } catch {
+            break;
+          }
+        }
+
+        const finalPageBlob =
+          bestBlob ||
+          (await canvasToBlobSafe(reusableCanvas, 'image/jpeg', 0.35));
+
+        const pageImgBytes = await finalPageBlob.arrayBuffer();
+        const embeddedImage = await newPdfDoc.embedJpg(pageImgBytes);
+
+        // Create new page with original unscaled physical dimensions (e.g. standard A4 / Letter)
+        const newPage = newPdfDoc.addPage([unscaledViewport.width, unscaledViewport.height]);
+        newPage.drawImage(embeddedImage, {
+          x: 0,
+          y: 0,
+          width: unscaledViewport.width,
+          height: unscaledViewport.height,
+        });
+      } finally {
+        page.cleanup();
+      }
+    }
+
+    if (signal?.aborted) {
+      throw new DOMException('Compression cancelled by user', 'AbortError');
+    }
+
+    onProgress?.(90, 'Finalizing compressed document...');
+    const pdfBytes = await newPdfDoc.save({ useObjectStreams: true });
+    const compressedBlob = new Blob([pdfBytes as unknown as BlobPart], { type: 'application/pdf' });
+
+    const accuracy = Math.max(
+      0,
+      Math.min(100, Math.round((1 - Math.abs(compressedBlob.size - targetSizeBytes) / targetSizeBytes) * 1000) / 10)
+    );
+
+    onProgress?.(100, 'PDF compression complete');
+    return {
+      blob: compressedBlob,
+      accuracy,
+      iterations,
+    };
+  } finally {
+    if (reusableCanvas) {
+      reusableCanvas.width = 0;
+      reusableCanvas.height = 0;
+    }
+    try {
+      await pdf.destroy();
+    } catch {
+      // Ignore worker cleanup errors
     }
   }
-
-  onProgress?.(90, 'Finalizing compressed document...');
-  const pdfBytes = await newPdfDoc.save({ useObjectStreams: true });
-  const compressedBlob = new Blob([pdfBytes as unknown as BlobPart], { type: 'application/pdf' });
-
-  const accuracy = Math.max(
-    0,
-    Math.min(100, Math.round((1 - Math.abs(compressedBlob.size - targetSizeBytes) / targetSizeBytes) * 1000) / 10)
-  );
-
-  onProgress?.(100, 'PDF compression complete');
-  return {
-    blob: compressedBlob,
-    accuracy,
-    iterations,
-  };
-} finally {
-  try {
-    await pdf.destroy();
-  } catch {
-    // Ignore worker cleanup errors
-  }
-}
 }

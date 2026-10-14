@@ -12,8 +12,21 @@ export const PreviewModal: React.FC<PreviewModalProps> = ({ item, onClose }) => 
   const [sliderPos, setSliderPos] = useState(50);
   const [viewMode, setViewMode] = useState<'slider' | 'side-by-side'>('slider');
 
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/60 dark:bg-black/85 backdrop-blur-md animate-in fade-in duration-150">
+    <div 
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="preview-modal-title"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/60 dark:bg-black/85 backdrop-blur-md animate-in fade-in duration-150"
+    >
       <div className="relative w-full max-w-5xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] border transition-colors
         bg-white border-slate-200 dark:bg-[#0c0d10] dark:border-[#22252c]"
       >
@@ -23,7 +36,7 @@ export const PreviewModal: React.FC<PreviewModalProps> = ({ item, onClose }) => 
           dark:bg-[#101215] dark:border-[#1f2228] dark:text-zinc-100"
         >
           <div className="min-w-0 flex items-center gap-3">
-            <h3 className="font-semibold text-sm truncate max-w-xs sm:max-w-md">{item.name}</h3>
+            <h3 id="preview-modal-title" className="font-semibold text-sm truncate max-w-xs sm:max-w-md">{item.name}</h3>
             <div className="hidden sm:flex items-center gap-2 text-xs font-mono text-slate-500 dark:text-zinc-400">
               <span>{formatBytes(item.originalSize)}</span>
               <span>→</span>

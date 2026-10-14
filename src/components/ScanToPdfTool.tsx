@@ -192,7 +192,10 @@ export const ScanToPdfTool: React.FC<ScanToPdfToolProps> = ({ onBack, onToast })
               <div className="flex items-center justify-between text-xs font-semibold text-stone-500 dark:text-zinc-400 uppercase tracking-wider">
                 <span>Page Sequence ({images.length} pages)</span>
                 <button
-                  onClick={() => setImages([])}
+                  onClick={() => {
+                    images.forEach(i => URL.revokeObjectURL(i.previewUrl));
+                    setImages([]);
+                  }}
                   className="text-rose-500 hover:text-rose-600 cursor-pointer font-medium"
                 >
                   Clear all

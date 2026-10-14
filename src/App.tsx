@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Dashboard } from './components/Dashboard';
 import { MergePdfTool } from './components/MergePdfTool';
@@ -42,6 +42,9 @@ export function App() {
   const [activeView, setActiveView] = useState<string>('dashboard');
   const [selectedCategory, setSelectedCategory] = useState<ToolCategory>('all');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // Active abort controllers map for compression jobs
+  const activeControllers = useRef<Map<string, AbortController>>(new Map());
 
   // Compression engine state
   const [items, setItems] = useState<FileItem[]>([]);
@@ -270,6 +273,29 @@ export function App() {
     []
   );
 
+  const handleCancel = useCallback((id: string) => {
+    const controller = activeControllers.current.get(id);
+    if (controller) {
+      controller.abort();
+      activeControllers.current.delete(id);
+    }
+    setItems((prev) =>
+      prev.map((i) => (i.id === id && i.status === 'compressing' ? { ...i, status: 'idle', progress: 0 } : i))
+    );
+    addToast('Compression cancelled.', 'info');
+  }, [addToast]);
+
+  const handleCancelAll = useCallback(() => {
+    activeControllers.current.forEach((controller) => {
+      controller.abort();
+    });
+    activeControllers.current.clear();
+    setItems((prev) =>
+      prev.map((i) => (i.status === 'compressing' ? { ...i, status: 'idle', progress: 0 } : i))
+    );
+    addToast('Cancelled all running compressions.', 'info');
+  }, [addToast]);
+
   const handleCompress = useCallback(
     async (id: string) => {
       const item = items.find((i) => i.id === id);
@@ -278,6 +304,13 @@ export function App() {
       if (item.compressedPreviewUrl) {
         URL.revokeObjectURL(item.compressedPreviewUrl);
       }
+
+      // Abort any existing controller for this item
+      if (activeControllers.current.has(id)) {
+        activeControllers.current.get(id)?.abort();
+      }
+      const controller = new AbortController();
+      activeControllers.current.set(id, controller);
 
       setItems((prev) =>
         prev.map((i) =>
@@ -294,6 +327,7 @@ export function App() {
           rotation: item.rotation,
           maxWidth: item.maxWidth,
           outputFormat: item.outputFormat,
+          signal: controller.signal,
           onProgress: (progress) => {
             setItems((prev) =>
               prev.map((i) => (i.id === id ? { ...i, progress } : i))
@@ -337,20 +371,34 @@ export function App() {
           `"${item.name}" compressed to ${formatBytes(result.blob.size)} (-${savings.percent}%) in ${elapsedSec}s.`,
           'success'
         );
-        } catch (err: unknown) {
-          const friendly = parseFriendlyError(err, 'Failed to compress document.');
+      } catch (err: unknown) {
+        if ((err as any)?.name === 'AbortError' || controller.signal.aborted) {
           setItems((prev) =>
-            prev.map((i) =>
-              i.id === id ? { ...i, status: 'error', errorMessage: friendly.message, progress: 0 } : i
-            )
+            prev.map((i) => (i.id === id ? { ...i, status: 'idle', progress: 0 } : i))
           );
-          addToast(`${friendly.title}: ${friendly.message}`, 'error');
+          return;
         }
-      },
-      [items, addToast]
+
+        const friendly = parseFriendlyError(err, 'Failed to compress document.');
+        setItems((prev) =>
+          prev.map((i) =>
+            i.id === id ? { ...i, status: 'error', errorMessage: friendly.message, progress: 0 } : i
+          )
+        );
+        addToast(`${friendly.title}: ${friendly.message}`, 'error');
+      } finally {
+        activeControllers.current.delete(id);
+      }
+    },
+    [items, addToast]
   );
 
   const handleRemove = useCallback((id: string) => {
+    const controller = activeControllers.current.get(id);
+    if (controller) {
+      controller.abort();
+      activeControllers.current.delete(id);
+    }
     setItems((prev) => {
       const item = prev.find((i) => i.id === id);
       if (item) {
@@ -364,11 +412,16 @@ export function App() {
   const handleCompressAll = useCallback(async () => {
     const pendingItems = items.filter((i) => i.status !== 'completed');
     for (const item of pendingItems) {
+      // Check if user stopped all before running next item
       await handleCompress(item.id);
     }
   }, [items, handleCompress]);
 
   const handleClearAll = useCallback(() => {
+    activeControllers.current.forEach((controller) => {
+      controller.abort();
+    });
+    activeControllers.current.clear();
     items.forEach((item) => {
       if (item.originalPreviewUrl) URL.revokeObjectURL(item.originalPreviewUrl);
       if (item.compressedPreviewUrl) URL.revokeObjectURL(item.compressedPreviewUrl);
@@ -700,6 +753,7 @@ export function App() {
                 <BatchControls
                   items={items}
                   onCompressAll={handleCompressAll}
+                  onCancelAll={handleCancelAll}
                   onClearAll={handleClearAll}
                   onApplyPresetAll={handleApplyPresetAll}
                   onConvertAllFormat={handleConvertAllFormat}
@@ -755,6 +809,7 @@ export function App() {
                           onUpdateTarget={handleUpdateTarget}
                           onUpdateItem={handleUpdateItem}
                           onCompress={handleCompress}
+                          onCancel={handleCancel}
                           onRemove={handleRemove}
                           onPreview={(previewItem) => setPreviewItem(previewItem)}
                         />
@@ -766,6 +821,7 @@ export function App() {
                       onUpdateTarget={handleUpdateTarget}
                       onUpdateItem={handleUpdateItem}
                       onCompress={handleCompress}
+                      onCancel={handleCancel}
                       onRemove={handleRemove}
                       onPreview={(previewItem) => setPreviewItem(previewItem)}
                     />

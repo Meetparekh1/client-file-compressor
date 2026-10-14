@@ -15,7 +15,15 @@ export async function compressDocxToTarget(
   file: File | Blob,
   options: CompressionOptions
 ): Promise<CompressionResult> {
-  const { targetSizeBytes, onProgress } = options;
+  const { targetSizeBytes, onProgress, signal } = options;
+
+  if (signal?.aborted) {
+    throw new DOMException('Compression cancelled by user', 'AbortError');
+  }
+
+  if (file.size <= 0) {
+    throw new Error('File is empty (0 bytes).');
+  }
 
   if (file.size <= targetSizeBytes) {
     onProgress?.(100, 'Already within target size');
@@ -32,6 +40,10 @@ export async function compressDocxToTarget(
     zip = await JSZip.loadAsync(file);
   } catch {
     throw new Error('Unable to read Word document. The file may be encrypted, password-protected, or corrupted.');
+  }
+
+  if (signal?.aborted) {
+    throw new DOMException('Compression cancelled by user', 'AbortError');
   }
 
   const mediaFolder = zip.folder('word/media');
@@ -70,6 +82,9 @@ export async function compressDocxToTarget(
     const loadedMedia: { path: string; blob: Blob; originalSize: number }[] = [];
 
     for (const item of mediaFiles) {
+      if (signal?.aborted) {
+        throw new DOMException('Compression cancelled by user', 'AbortError');
+      }
       const arrayBuffer = await item.file.async('arraybuffer');
       totalMediaBytes += arrayBuffer.byteLength;
 
@@ -89,6 +104,9 @@ export async function compressDocxToTarget(
     const targetScale = Math.min(0.9, mediaBudget / totalMediaBytes);
 
     for (let i = 0; i < loadedMedia.length; i++) {
+      if (signal?.aborted) {
+        throw new DOMException('Compression cancelled by user', 'AbortError');
+      }
       const item = loadedMedia[i];
       const progress = 25 + Math.round(((i + 1) / loadedMedia.length) * 50);
       onProgress?.(progress, `Optimizing document image ${i + 1}/${loadedMedia.length}...`);
@@ -99,6 +117,7 @@ export async function compressDocxToTarget(
           const compResult = await compressImageToTarget(item.blob, {
             targetSizeBytes: targetImgBytes,
             tolerance: 0.05,
+            signal,
           });
 
           // Only replace if compressed version is strictly smaller than original
@@ -107,7 +126,10 @@ export async function compressDocxToTarget(
             mediaFolder?.file(item.path, newArrayBuffer);
           }
           iterations += compResult.iterations;
-        } catch {
+        } catch (err: unknown) {
+          if (signal?.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
+            throw err;
+          }
           // Graceful fallback: keep original image untouched
         }
       }

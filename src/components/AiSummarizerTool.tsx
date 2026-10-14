@@ -568,7 +568,13 @@ export const AiSummarizerTool: React.FC<AiSummarizerToolProps> = ({ onBack, onTo
                   { icon: <FileText className="w-3.5 h-3.5" />, label: 'Total Pages', value: summaryResult.stats.pageCount },
                   { icon: <BookOpen className="w-3.5 h-3.5" />, label: 'Source Words', value: summaryResult.stats.wordCount.toLocaleString() },
                   { icon: <TrendingDown className="w-3.5 h-3.5 text-emerald-500" />, label: 'Condensation', value: `${summaryResult.stats.reductionPercentage}%`, accent: 'text-emerald-600 dark:text-emerald-400' },
-                  { icon: <Clock className="w-3.5 h-3.5" />, label: 'Est. Read', value: `~${summaryResult.stats.readingTimeMinutes} min` },
+                  {
+                    icon: <Clock className="w-3.5 h-3.5" />,
+                    label: summaryResult.stats.inferenceDurationMs ? 'AI Time' : 'Est. Read',
+                    value: summaryResult.stats.inferenceDurationMs
+                      ? `${(summaryResult.stats.inferenceDurationMs / 1000).toFixed(1)}s`
+                      : `~${summaryResult.stats.readingTimeMinutes} min`,
+                  },
                 ].map(({ icon, label, value, accent }) => (
                   <div key={label} className="p-3.5 rounded-2xl bg-white dark:bg-[#131722] border border-stone-200/80 dark:border-[#222736]">
                     <div className="flex items-center gap-2 text-stone-400 dark:text-zinc-500 mb-1">
@@ -579,6 +585,23 @@ export const AiSummarizerTool: React.FC<AiSummarizerToolProps> = ({ onBack, onTo
                   </div>
                 ))}
               </div>
+
+              {(summaryResult.stats.modelLoadDurationMs || summaryResult.stats.memoryUsedMb) ? (
+                <div className="px-3.5 py-2 rounded-xl bg-violet-50/50 dark:bg-violet-950/20 border border-violet-100 dark:border-violet-900/30 flex items-center justify-between text-xs font-mono text-violet-700 dark:text-violet-300">
+                  <div className="flex items-center gap-2">
+                    <Zap className="w-3.5 h-3.5 text-violet-500" />
+                    <span>Engine Telemetry:</span>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    {summaryResult.stats.modelLoadDurationMs ? (
+                      <span>Model Load: <strong>{(summaryResult.stats.modelLoadDurationMs / 1000).toFixed(2)}s</strong></span>
+                    ) : null}
+                    {summaryResult.stats.memoryUsedMb ? (
+                      <span>JS Heap: <strong>{summaryResult.stats.memoryUsedMb} MB</strong></span>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
 
               {/* Action toolbar */}
               <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-2xl bg-white dark:bg-[#131722] border border-stone-200/80 dark:border-[#222736]">

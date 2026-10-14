@@ -59,6 +59,7 @@ export interface CompressionOptions {
   maxWidth?: number;
   rotation?: number;
   remoteApiUrl?: string;
+  signal?: AbortSignal;
   onProgress?: (progress: number, note?: string) => void;
 }
 

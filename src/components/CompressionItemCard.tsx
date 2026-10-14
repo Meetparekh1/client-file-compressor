@@ -23,6 +23,7 @@ interface CompressionItemCardProps {
   onUpdateTarget: (id: string, targetBytes: number, mode: TargetMode, percentage: number) => void;
   onUpdateItem: (id: string, updates: Partial<FileItem>) => void;
   onCompress: (id: string) => void;
+  onCancel?: (id: string) => void;
   onRemove: (id: string) => void;
   onPreview: (item: FileItem) => void;
 }
@@ -32,6 +33,7 @@ export const CompressionItemCard: React.FC<CompressionItemCardProps> = ({
   onUpdateTarget,
   onUpdateItem,
   onCompress,
+  onCancel,
   onRemove,
   onPreview,
 }) => {
@@ -613,28 +615,44 @@ export const CompressionItemCard: React.FC<CompressionItemCardProps> = ({
       {/* Bottom Action Trigger */}
       <div>
         {item.status !== 'completed' ? (
-          <button
-            onClick={() => onCompress(item.id)}
-            disabled={item.status === 'compressing'}
-            className="w-full py-2.5 px-4 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition cursor-pointer shadow-sm disabled:opacity-40
-              bg-slate-900 hover:bg-slate-800 text-white
-              dark:bg-zinc-100 dark:hover:bg-white dark:text-zinc-950"
-          >
-            {item.status === 'compressing' ? (
-              <>
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                <span>{isConvertingDocument ? 'Converting document...' : 'Compressing...'}</span>
-              </>
-            ) : isConvertingDocument ? (
-              <span>
-                {item.category === 'pdf'
-                  ? 'Convert PDF to Word (.docx)'
-                  : 'Convert Word to PDF'}
-              </span>
-            ) : (
-              <span>Compress to ~{formatBytes(item.targetSize)}</span>
-            )}
-          </button>
+          item.status === 'compressing' ? (
+            <div className="flex items-center gap-2">
+              <div className="flex-1 py-2.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 bg-slate-100 text-slate-700 dark:bg-[#1a1c22] dark:text-zinc-300">
+                <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-500" />
+                <span className="truncate">{isConvertingDocument ? 'Converting...' : 'Compressing...'}</span>
+              </div>
+              {onCancel && (
+                <button
+                  type="button"
+                  onClick={() => onCancel(item.id)}
+                  className="py-2.5 px-3.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer border
+                    bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700
+                    dark:bg-red-950/30 dark:hover:bg-red-900/40 dark:border-red-900/50 dark:text-red-300 shadow-xs"
+                  title="Cancel compression"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  <span>Cancel</span>
+                </button>
+              )}
+            </div>
+          ) : (
+            <button
+              onClick={() => onCompress(item.id)}
+              className="w-full py-2.5 px-4 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition cursor-pointer shadow-sm
+                bg-slate-900 hover:bg-slate-800 text-white
+                dark:bg-zinc-100 dark:hover:bg-white dark:text-zinc-950"
+            >
+              {isConvertingDocument ? (
+                <span>
+                  {item.category === 'pdf'
+                    ? 'Convert PDF to Word (.docx)'
+                    : 'Convert Word to PDF'}
+                </span>
+              ) : (
+                <span>Compress to ~{formatBytes(item.targetSize)}</span>
+              )}
+            </button>
+          )
         ) : (
           <div className="flex items-center gap-2">
             {(item.category === 'image' || item.category === 'svg') && item.outputFormat !== 'application/pdf' && (

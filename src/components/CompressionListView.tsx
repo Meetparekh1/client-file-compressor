@@ -19,6 +19,7 @@ interface CompressionListViewProps {
   onUpdateTarget: (id: string, targetBytes: number, mode: 'target_size' | 'percentage', percentage: number) => void;
   onUpdateItem: (id: string, updates: Partial<FileItem>) => void;
   onCompress: (id: string) => void;
+  onCancel?: (id: string) => void;
   onRemove: (id: string) => void;
   onPreview: (item: FileItem) => void;
 }
@@ -27,6 +28,7 @@ export const CompressionListView: React.FC<CompressionListViewProps> = ({
   items,
   onUpdateItem,
   onCompress,
+  onCancel,
   onRemove,
   onPreview,
 }) => {
@@ -167,15 +169,29 @@ export const CompressionListView: React.FC<CompressionListViewProps> = ({
             )}
 
             {item.status !== 'completed' ? (
-              <button
-                onClick={() => onCompress(item.id)}
-                disabled={item.status === 'compressing'}
-                className="px-3.5 py-1 rounded-lg font-semibold text-xs transition cursor-pointer disabled:opacity-40 shadow-xs
-                  bg-slate-900 hover:bg-slate-800 text-white
-                  dark:bg-zinc-200 dark:hover:bg-white dark:text-zinc-950"
-              >
-                Compress
-              </button>
+              item.status === 'compressing' && onCancel ? (
+                <button
+                  type="button"
+                  onClick={() => onCancel(item.id)}
+                  className="px-2.5 py-1 rounded-lg font-semibold text-xs transition cursor-pointer border
+                    bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700
+                    dark:bg-red-950/30 dark:hover:bg-red-900/40 dark:border-red-900/50 dark:text-red-300 shadow-xs flex items-center gap-1"
+                  title="Cancel compression"
+                >
+                  <X className="w-3 h-3" />
+                  <span>Cancel</span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => onCompress(item.id)}
+                  disabled={item.status === 'compressing'}
+                  className="px-3.5 py-1 rounded-lg font-semibold text-xs transition cursor-pointer disabled:opacity-40 shadow-xs
+                    bg-slate-900 hover:bg-slate-800 text-white
+                    dark:bg-zinc-200 dark:hover:bg-white dark:text-zinc-950"
+                >
+                  Compress
+                </button>
+              )
             ) : (
               <>
                 {item.category === 'image' && (

@@ -63,12 +63,21 @@ export const ToolCard: React.FC<ToolCardProps> = ({ tool, onSelect }) => {
 
   return (
     <div
+      role={isComingSoon ? undefined : "button"}
+      tabIndex={isComingSoon ? -1 : 0}
+      aria-disabled={isComingSoon}
       onClick={() => {
         if (!isComingSoon) {
           onSelect(tool.id);
         }
       }}
-      className={`group relative rounded-3xl p-4 sm:p-6 transition-all duration-300 border flex flex-col justify-between
+      onKeyDown={(e) => {
+        if (!isComingSoon && (e.key === 'Enter' || e.key === ' ')) {
+          e.preventDefault();
+          onSelect(tool.id);
+        }
+      }}
+      className={`group relative rounded-3xl p-4 sm:p-6 transition-all duration-300 border flex flex-col justify-between focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#0b0e14]
         bg-white border-stone-200/80 shadow-sm hover:shadow-md hover:border-stone-300 glass-card
         dark:bg-[#12161f] dark:border-[#202735] dark:hover:border-[#323d52] dark:shadow-none
         ${isComingSoon ? 'opacity-80 cursor-default' : 'cursor-pointer hover:-translate-y-1 hover:shadow-lg'}`}

@@ -8,6 +8,7 @@ import type { FileItem, OutputFormat } from '../lib/types';
 interface BatchControlsProps {
   items: FileItem[];
   onCompressAll: () => void;
+  onCancelAll?: () => void;
   onClearAll: () => void;
   onApplyPresetAll: (targetBytes: number) => void;
   onConvertAllFormat?: (format: OutputFormat) => void;
@@ -18,6 +19,7 @@ interface BatchControlsProps {
 export const BatchControls: React.FC<BatchControlsProps> = ({
   items,
   onCompressAll,
+  onCancelAll,
   onClearAll,
   onApplyPresetAll,
   onConvertAllFormat,
@@ -135,11 +137,21 @@ export const BatchControls: React.FC<BatchControlsProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
-          {pendingCount > 0 && (
+          {isAnyCompressing && onCancelAll && (
+            <button
+              onClick={onCancelAll}
+              className="px-4 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-sm border
+                bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700
+                dark:bg-red-950/40 dark:hover:bg-red-900/50 dark:border-red-900/60 dark:text-red-300"
+            >
+              <span>Stop / Cancel All</span>
+            </button>
+          )}
+
+          {pendingCount > 0 && !isAnyCompressing && (
             <button
               onClick={onCompressAll}
-              disabled={isAnyCompressing}
-              className="px-4 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-sm disabled:opacity-40
+              className="px-4 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-sm
                 bg-slate-900 hover:bg-slate-800 text-white
                 dark:bg-zinc-100 dark:hover:bg-white dark:text-zinc-950"
             >

@@ -56,6 +56,9 @@ export interface SummaryResult {
     reductionPercentage: number;
     readingTimeMinutes: number;
     confidence: number;
+    modelLoadDurationMs?: number;
+    inferenceDurationMs?: number;
+    memoryUsedMb?: number;
   };
 }
 
@@ -73,73 +76,124 @@ export async function downloadAndCacheAiModel(
   
   onProgress?.({ isDownloaded: false, modelName: 'Xenova/distilbart-cnn-6-6', downloadProgress: 0, downloadStage: 'Initializing Model', modelSizeBytes: 200 * 1024 * 1024 });
 
-  summarizerPipeline = await pipeline('summarization', 'Xenova/distilbart-cnn-6-6', {
-    progress_callback: (info: any) => {
-      if (info.status === 'progress' || info.status === 'downloading') {
-        const p = info.progress || 0;
-        onProgress?.({
-          isDownloaded: false,
-          modelName: 'Xenova/distilbart-cnn-6-6',
-          downloadProgress: Math.round(p),
-          downloadStage: `Downloading ${info.file}...`,
-          modelSizeBytes: 200 * 1024 * 1024
-        });
-      } else if (info.status === 'ready') {
-        onProgress?.({
-          isDownloaded: true,
-          modelName: 'Xenova/distilbart-cnn-6-6',
-          downloadProgress: 100,
-          downloadStage: 'Model Ready',
-          modelSizeBytes: 200 * 1024 * 1024
-        });
+  try {
+    summarizerPipeline = await pipeline('summarization', 'Xenova/distilbart-cnn-6-6', {
+      progress_callback: (info: any) => {
+        if (info.status === 'progress' || info.status === 'downloading') {
+          const p = typeof info.progress === 'number' ? Math.round(info.progress) : 0;
+          onProgress?.({
+            isDownloaded: false,
+            modelName: 'Xenova/distilbart-cnn-6-6',
+            downloadProgress: p,
+            downloadStage: info.file ? `Downloading ${info.file}...` : 'Downloading model components...',
+            modelSizeBytes: 200 * 1024 * 1024
+          });
+        } else if (info.status === 'ready' || info.status === 'loaded') {
+          onProgress?.({
+            isDownloaded: true,
+            modelName: 'Xenova/distilbart-cnn-6-6',
+            downloadProgress: 100,
+            downloadStage: 'Model Ready',
+            modelSizeBytes: 200 * 1024 * 1024
+          });
+        }
       }
-    }
-  });
+    });
+  } catch (error) {
+    summarizerPipeline = null;
+    throw new Error(
+      `Failed to load local AI model: ${error instanceof Error ? error.message : 'Network or WebAssembly loading error'}. Please check internet connection.`
+    );
+  }
 }
 
 export async function summarizePdfDocument(
   file: File,
   mode: SummaryMode = 'executive',
-  onProgress?: (stage: string, progress: number) => void
+  onProgress?: (stage: string, progress: number) => void,
+  options?: { signal?: AbortSignal }
 ): Promise<SummaryResult> {
+  const signal = options?.signal;
+  if (signal?.aborted) {
+    throw new DOMException('Summarization cancelled by user', 'AbortError');
+  }
+
   onProgress?.('Extracting text from PDF...', 5);
   const arrayBuffer = await file.arrayBuffer();
+  if (signal?.aborted) {
+    throw new DOMException('Summarization cancelled by user', 'AbortError');
+  }
+
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   const numPages = pdf.numPages;
 
+  if (!numPages || numPages <= 0) {
+    throw new Error('PDF document has no pages.');
+  }
+
   let allText = '';
   for (let i = 1; i <= numPages; i++) {
+    if (signal?.aborted) {
+      throw new DOMException('Summarization cancelled by user', 'AbortError');
+    }
+
     onProgress?.(`Extracting text from page ${i}...`, 5 + (15 * (i / numPages)));
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
     const pageText = content.items.map((it: any) => it.str).join(' ');
     allText += pageText + '\n\n';
+    page.cleanup?.();
   }
 
   // Pre-process text (clean up whitespace)
   allText = allText.replace(/\s+/g, ' ').trim();
-  const words = allText.split(' ');
+  if (!allText) {
+    throw new Error('No selectable text found in the document. Scanned documents may require OCR first.');
+  }
+
+  const words = allText.split(' ').filter(Boolean);
   const totalWords = words.length;
 
+  if (totalWords < 5) {
+    throw new Error('Document contains too little text to summarize (less than 5 words).');
+  }
+
+  let modelLoadDurationMs = 0;
   if (!summarizerPipeline) {
-    onProgress?.('Loading local AI model...', 30);
-    await downloadAndCacheAiModel();
+    onProgress?.('Loading local AI model...', 25);
+    const loadStart = performance.now();
+    await downloadAndCacheAiModel((status) => {
+      onProgress?.(
+        `${status.downloadStage} (${status.downloadProgress}%)`,
+        25 + Math.round(status.downloadProgress * 0.15)
+      );
+    });
+    modelLoadDurationMs = Math.round(performance.now() - loadStart);
+  }
+
+  if (signal?.aborted) {
+    throw new DOMException('Summarization cancelled by user', 'AbortError');
   }
 
   onProgress?.('Generating Neural Summary (this might take a while locally)...', 40);
+  const inferenceStart = performance.now();
   
   // Chunking (Models max length usually 1024 tokens)
   const chunkSize = 600;
-  const chunks = [];
+  const chunks: string[] = [];
   for (let i = 0; i < words.length; i += chunkSize) {
     chunks.push(words.slice(i, i + chunkSize).join(' '));
   }
 
   let finalSummary = '';
   for (let i = 0; i < chunks.length; i++) {
+    if (signal?.aborted) {
+      throw new DOMException('Summarization cancelled by user', 'AbortError');
+    }
+
     onProgress?.(`Summarizing part ${i + 1} of ${chunks.length}...`, 40 + (50 * (i / chunks.length)));
     
-    // Some short chunks don't need summarization
+    // Short chunks don't need summarization
     if (chunks[i].split(' ').length < 50) {
       finalSummary += chunks[i] + ' ';
       continue;
@@ -150,35 +204,50 @@ export async function summarizePdfDocument(
         max_new_tokens: 100,
         min_new_tokens: 30,
       });
-      finalSummary += result[0].summary_text + ' ';
+      if (result && result[0]?.summary_text) {
+        finalSummary += result[0].summary_text + ' ';
+      } else {
+        // Fallback: retain original chunk content rather than dropping it silently
+        finalSummary += chunks[i] + ' ';
+      }
     } catch (e) {
-      // In case of error (e.g. sequence too long), just add the chunk
-      console.warn("Summarization failed for chunk", e);
+      console.warn("Summarization failed for chunk, preserving original chunk text:", e);
+      // Fallback: do not silently drop failed chunk; preserve source text
+      finalSummary += chunks[i] + ' ';
     }
   }
 
+  const inferenceDurationMs = Math.round(performance.now() - inferenceStart);
+  const memoryUsedMb = (performance as any)?.memory?.usedJSHeapSize
+    ? Math.round(((performance as any).memory.usedJSHeapSize / (1024 * 1024)) * 10) / 10
+    : undefined;
+
   onProgress?.('Polishing results...', 95);
 
-  const sentences = finalSummary.split('. ').filter(s => s.length > 10);
+  const trimmedSummary = finalSummary.trim();
+  const sentences = trimmedSummary.split(/(?<=[.?!])\s+/).filter(s => s.trim().length > 5);
   
   const result: SummaryResult = {
-    documentTitle: 'AI Generated Summary',
+    documentTitle: file.name.replace(/\.[^/.]+$/, '') || 'AI Generated Summary',
     documentType: 'general',
-    executiveSummary: finalSummary.trim(),
-    keyPoints: sentences.slice(0, 5).map(s => s.trim() + '.'),
+    executiveSummary: trimmedSummary,
+    keyPoints: sentences.slice(0, 5).map(s => s.trim()),
     actionItems: mode === 'action' ? sentences.slice(0, 3).map(s => `Consider: ${s.trim()}`) : [],
     numericInsights: [],
     questionsAndAnswers: [],
     formulas: [],
-    thematicSections: [{ title: 'Main Content', points: sentences }],
+    thematicSections: [{ title: 'Main Content', points: sentences.slice(0, 10) }],
     codeExamples: [],
     topics: [{ text: 'General', count: 1 }],
     stats: {
       wordCount: totalWords,
       pageCount: numPages,
-      reductionPercentage: Math.round((1 - (finalSummary.split(' ').length / (totalWords || 1))) * 100) || 0,
-      readingTimeMinutes: Math.ceil(totalWords / 200),
-      confidence: 0.95
+      reductionPercentage: Math.max(0, Math.round((1 - (trimmedSummary.split(/\s+/).length / (totalWords || 1))) * 100)) || 0,
+      readingTimeMinutes: Math.max(1, Math.ceil(totalWords / 200)),
+      confidence: 0.95,
+      modelLoadDurationMs,
+      inferenceDurationMs,
+      memoryUsedMb,
     }
   };
 

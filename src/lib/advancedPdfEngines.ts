@@ -7,6 +7,7 @@ import {
   MAX_PDF_PAGES, 
   MAX_PDF_TO_IMAGES_PAGES 
 } from './securityLimits';
+import { cleanupCanvas } from './resourceManager';
 
 // Configure pdfjs worker if available
 if (typeof window !== 'undefined' && 'Worker' in window) {
@@ -63,13 +64,18 @@ export async function deletePdfPages(
   const totalPages = pdfDoc.getPageCount();
   validatePageCount(totalPages, MAX_PDF_PAGES, 'Delete Pages');
 
-  if (pagesToDelete.length >= totalPages) {
+  // Validate and deduplicate pages to delete
+  const uniquePages = Array.from(new Set(pagesToDelete.filter(p => Number.isInteger(p) && p >= 1 && p <= totalPages)));
+  if (uniquePages.length === 0) {
+    throw new Error('Please specify at least one valid page number to delete.');
+  }
+
+  if (uniquePages.length >= totalPages) {
     throw new Error('You cannot delete all pages in the document. At least one page must remain.');
   }
 
   // Sort descending so indices don't shift during deletion
-  const sortedIndices = Array.from(new Set(pagesToDelete))
-    .filter(p => p >= 1 && p <= totalPages)
+  const sortedIndices = uniquePages
     .map(p => p - 1)
     .sort((a, b) => b - a);
 
@@ -78,6 +84,10 @@ export async function deletePdfPages(
   }
 
   const remainingCount = pdfDoc.getPageCount();
+  if (remainingCount <= 0) {
+    throw new Error('You cannot delete all pages in the document. At least one page must remain.');
+  }
+
   const pdfBytes = await pdfDoc.save();
   return {
     blob: new Blob([pdfBytes as Uint8Array<ArrayBuffer>], { type: 'application/pdf' }),
@@ -93,11 +103,23 @@ export async function reorderPdfPages(
   file: File,
   newOrder: number[]
 ): Promise<Blob> {
+  validateFileSize(file);
+  if (!Array.isArray(newOrder) || newOrder.length === 0) {
+    throw new Error('Invalid page reordering order specified.');
+  }
+
   const arrayBuffer = await file.arrayBuffer();
   const sourcePdf = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
-  const newPdf = await PDFDocument.create();
+  const totalPages = sourcePdf.getPageCount();
+  validatePageCount(totalPages, MAX_PDF_PAGES, 'Reorder Pages');
 
-  const zeroBasedIndices = newOrder.map(p => p - 1);
+  const validPages = newOrder.filter(p => Number.isInteger(p) && p >= 1 && p <= totalPages);
+  if (validPages.length === 0) {
+    throw new Error('Page reordering list contains no valid pages.');
+  }
+
+  const newPdf = await PDFDocument.create();
+  const zeroBasedIndices = validPages.map(p => p - 1);
   const copiedPages = await newPdf.copyPages(sourcePdf, zeroBasedIndices);
 
   for (const page of copiedPages) {
@@ -127,8 +149,13 @@ export async function addPageNumbersToPdf(
   const totalPages = pdfDoc.getPageCount();
   validatePageCount(totalPages, MAX_PDF_PAGES, 'Add Page Numbers');
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const fontSize = options.fontSize || 10;
-  const startNum = options.startAt || 1;
+  
+  const fontSize = typeof options.fontSize === 'number' && options.fontSize > 0 && options.fontSize <= 72
+    ? options.fontSize
+    : 10;
+  const startNum = typeof options.startAt === 'number' && Number.isInteger(options.startAt)
+    ? options.startAt
+    : 1;
 
   for (let i = 0; i < totalPages; i++) {
     const page = pdfDoc.getPage(i);
@@ -168,8 +195,11 @@ export async function addPageNumbersToPdf(
  * Freezes interactive form fields and widgets so they can no longer be edited.
  */
 export async function flattenPdfForm(file: File): Promise<Blob> {
+  validateFileSize(file);
   const arrayBuffer = await file.arrayBuffer();
   const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+  const totalPages = pdfDoc.getPageCount();
+  validatePageCount(totalPages, MAX_PDF_PAGES, 'Flatten PDF Form');
   const form = pdfDoc.getForm();
   
   try {
@@ -190,18 +220,25 @@ export async function cropPdfPages(
   file: File,
   margins: { top: number; bottom: number; left: number; right: number }
 ): Promise<Blob> {
+  validateFileSize(file);
   const arrayBuffer = await file.arrayBuffer();
   const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
   const totalPages = pdfDoc.getPageCount();
+  validatePageCount(totalPages, MAX_PDF_PAGES, 'Crop PDF');
+
+  const top = Math.max(0, margins.top || 0);
+  const bottom = Math.max(0, margins.bottom || 0);
+  const left = Math.max(0, margins.left || 0);
+  const right = Math.max(0, margins.right || 0);
 
   for (let i = 0; i < totalPages; i++) {
     const page = pdfDoc.getPage(i);
     const { x, y, width, height } = page.getMediaBox();
 
-    const newX = x + margins.left;
-    const newY = y + margins.bottom;
-    const newWidth = Math.max(50, width - margins.left - margins.right);
-    const newHeight = Math.max(50, height - margins.top - margins.bottom);
+    const newX = x + left;
+    const newY = y + bottom;
+    const newWidth = Math.max(50, width - left - right);
+    const newHeight = Math.max(50, height - top - bottom);
 
     page.setMediaBox(newX, newY, newWidth, newHeight);
     page.setCropBox(newX, newY, newWidth, newHeight);
@@ -333,41 +370,59 @@ export async function pdfToImagesZip(
   validateFileSize(file);
   const arrayBuffer = await file.arrayBuffer();
   const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
-  const pdf = await loadingTask.promise;
-  const numPages = pdf.numPages;
-  validatePageCount(numPages, MAX_PDF_TO_IMAGES_PAGES, 'PDF to Images');
-  const zip = new JSZip();
+  let pdf: any = null;
 
-  for (let i = 1; i <= numPages; i++) {
-    onProgress?.(i, numPages);
-    const page = await pdf.getPage(i);
-    const viewport = page.getViewport({ scale: 2.0 }); // 2x high resolution
-    const canvas = document.createElement('canvas');
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) continue;
-
-    // Render page
-    const renderContext = {
-      canvasContext: ctx as unknown as CanvasRenderingContext2D,
-      viewport,
-    };
-    await page.render(renderContext).promise;
-
-    const dataUrl = canvas.toDataURL(format === 'jpeg' ? 'image/jpeg' : 'image/png', 0.92);
-    // Free canvas bitmap buffer immediately
-    canvas.width = 0;
-    canvas.height = 0;
-    const base64Data = dataUrl.split(',')[1];
-    zip.file(`page_${i}.${format === 'jpeg' ? 'jpg' : 'png'}`, base64Data, { base64: true });
-  }
-
-  const result = await zip.generateAsync({ type: 'blob' });
   try {
-    loadingTask.destroy();
-  } catch {
-    // Ignore task destruction errors
+    pdf = await loadingTask.promise;
+    const numPages = pdf.numPages;
+    validatePageCount(numPages, MAX_PDF_TO_IMAGES_PAGES, 'PDF to Images');
+    const zip = new JSZip();
+
+    for (let i = 1; i <= numPages; i++) {
+      onProgress?.(i, numPages);
+      const page = await pdf.getPage(i);
+      const viewport = page.getViewport({ scale: 2.0 }); // 2x high resolution
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        page.cleanup();
+        cleanupCanvas(canvas);
+        continue;
+      }
+
+      try {
+        // Render page
+        const renderContext = {
+          canvasContext: ctx as unknown as CanvasRenderingContext2D,
+          viewport,
+        };
+        await page.render(renderContext).promise;
+
+        const dataUrl = canvas.toDataURL(format === 'jpeg' ? 'image/jpeg' : 'image/png', 0.92);
+        const base64Data = dataUrl.split(',')[1];
+        zip.file(`page_${i}.${format === 'jpeg' ? 'jpg' : 'png'}`, base64Data, { base64: true });
+      } finally {
+        // Free canvas bitmap buffer and page resources immediately
+        cleanupCanvas(canvas);
+        page.cleanup();
+      }
+    }
+
+    return await zip.generateAsync({ type: 'blob' });
+  } finally {
+    try {
+      if (pdf) {
+        await pdf.destroy();
+      }
+    } catch {
+      // Ignore pdf destruction errors
+    }
+    try {
+      loadingTask.destroy();
+    } catch {
+      // Ignore task destruction errors
+    }
   }
-  return result;
 }

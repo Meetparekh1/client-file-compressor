@@ -71,6 +71,14 @@ export async function mergePdfFiles(
  * Parses page ranges string like "1-3, 5, 8-10" into 1-based page number array.
  */
 export function parsePageRangeString(rangeStr: string, totalPages: number): number[] {
+  if (typeof totalPages !== 'number' || totalPages <= 0) {
+    throw new Error('Invalid total document page count.');
+  }
+
+  if (typeof rangeStr !== 'string') {
+    return [];
+  }
+
   const clean = rangeStr.replace(/\s+/g, '');
   if (!clean) return [];
 
@@ -81,12 +89,19 @@ export function parsePageRangeString(rangeStr: string, totalPages: number): numb
     if (!part) continue;
 
     if (part.includes('-')) {
-      const [startStr, endStr] = part.split('-');
+      const hyphenParts = part.split('-');
+      if (hyphenParts.length !== 2) {
+        throw new Error(`Invalid page range: "${part}". Please check format (e.g. 1-3, 5).`);
+      }
+      const [startStr, endStr] = hyphenParts;
       const start = parseInt(startStr, 10);
       const end = parseInt(endStr, 10);
 
       if (isNaN(start) || isNaN(end) || start > end || start < 1) {
         throw new Error(`Invalid page range: "${part}". Please check format (e.g. 1-3, 5).`);
+      }
+      if (start > totalPages) {
+        throw new Error(`Page range "${part}" starts outside document range (1 to ${totalPages}).`);
       }
 
       for (let p = Math.max(1, start); p <= Math.min(totalPages, end); p++) {

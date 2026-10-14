@@ -122,8 +122,8 @@ export const MergePdfTool: React.FC<MergePdfToolProps> = ({ onBack, onToast }) =
         <button
           onClick={onBack}
           className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-sm font-medium
-            bg-white/80 border border-amber-900/10 text-stone-700 hover:bg-stone-100 hover:text-stone-900 shadow-sm
-            dark:bg-[#161a23] dark:border-white/10 dark:text-zinc-300 dark:hover:bg-[#1f2430] dark:hover:text-white transition-all"
+            bg-white/80 border border-stone-200 text-stone-700 hover:bg-stone-100 hover:text-stone-900 shadow-xs
+            dark:bg-[#161a23] dark:border-white/10 dark:text-zinc-300 dark:hover:bg-[#1f2430] dark:hover:text-white transition-all cursor-pointer"
         >
           <ArrowLeft className="w-4 h-4" />
           <span>All Tools</span>

@@ -22,20 +22,34 @@ export const RemoteConsentModal: React.FC<RemoteConsentModalProps> = ({
 
   const endpoint = targetEndpoint || getConverterApiUrl();
 
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancel();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onCancel]);
+
   const handleGrantConsent = () => {
     setRemoteProcessingConsent(true, endpoint);
     onConsentGranted();
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+    <div 
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="remote-consent-title"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200"
+    >
       <div className="bg-white dark:bg-[#141824] rounded-3xl border border-stone-200 dark:border-[#252c3c] p-6 max-w-md w-full shadow-2xl space-y-4">
         <div className="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center">
           <AlertTriangle className="w-6 h-6" />
         </div>
 
         <div>
-          <h3 className="text-lg font-bold text-stone-900 dark:text-white">
+          <h3 id="remote-consent-title" className="text-lg font-bold text-stone-900 dark:text-white">
             Explicit Remote Processing Consent
           </h3>
           <p className="text-xs sm:text-sm text-stone-600 dark:text-zinc-400 mt-2 leading-relaxed">
