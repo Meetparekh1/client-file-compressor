@@ -1,6 +1,6 @@
 import { sanitizeFilename } from './utils';
 import { assertRemoteProcessingConsent } from './remoteConsent';
-import { TIMEOUT_REMOTE_MS, validateFileSize } from './securityLimits';
+import { TIMEOUT_REMOTE_MS, validateFileSize, MAX_FILE_SIZE_BYTES } from './securityLimits';
 import { sanitizeErrorMessage } from './errorParser';
 
 /**
@@ -63,6 +63,19 @@ export interface ConvertOptions {
   skipConsentCheck?: boolean;
 }
 
+const VALID_DOCX_MIMES = [
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/octet-stream',
+  'application/zip',
+  'application/x-zip-compressed',
+];
+
+const VALID_PDF_MIMES = [
+  'application/pdf',
+  'application/x-pdf',
+  'application/octet-stream',
+];
+
 /**
  * Converts a PDF file to a Word (.docx) file via the REST API.
  */
@@ -90,9 +103,11 @@ export async function convertPdfToDocx(
   }
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_REMOTE_MS);
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
   try {
+    timeoutId = setTimeout(() => controller.abort(), TIMEOUT_REMOTE_MS);
+
     const response = await fetch(endpoint, {
       method: 'POST',
       body: formData,
@@ -113,7 +128,30 @@ export async function convertPdfToDocx(
       throw new Error(errorMessage);
     }
 
-    return await response.blob();
+    // Verify response MIME type
+    const contentType = (response.headers.get('content-type') || '').toLowerCase().split(';')[0].trim();
+    if (contentType && !VALID_DOCX_MIMES.includes(contentType)) {
+      throw new Error(`Remote converter returned invalid media type: ${contentType}. Expected Word document (.docx).`);
+    }
+
+    // Verify Content-Length header if present
+    const contentLengthStr = response.headers.get('content-length');
+    if (contentLengthStr) {
+      const contentLength = parseInt(contentLengthStr, 10);
+      if (!isNaN(contentLength) && contentLength > MAX_FILE_SIZE_BYTES) {
+        throw new Error(`Converted response exceeds maximum allowed download size limit (${Math.round(MAX_FILE_SIZE_BYTES / (1024 * 1024))}MB).`);
+      }
+    }
+
+    const blob = await response.blob();
+    if (blob.size === 0) {
+      throw new Error('Remote converter returned an empty file (0 bytes).');
+    }
+    if (blob.size > MAX_FILE_SIZE_BYTES) {
+      throw new Error(`Converted response exceeds maximum allowed download size limit (${Math.round(MAX_FILE_SIZE_BYTES / (1024 * 1024))}MB).`);
+    }
+
+    return blob;
   } catch (err: unknown) {
     if (err instanceof DOMException && err.name === 'AbortError') {
       throw new Error(
@@ -127,7 +165,9 @@ export async function convertPdfToDocx(
     }
     throw err;
   } finally {
-    clearTimeout(timeoutId);
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
   }
 }
 
@@ -158,9 +198,11 @@ export async function convertDocxToPdf(
   }
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_REMOTE_MS);
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
   try {
+    timeoutId = setTimeout(() => controller.abort(), TIMEOUT_REMOTE_MS);
+
     const response = await fetch(endpoint, {
       method: 'POST',
       body: formData,
@@ -180,7 +222,30 @@ export async function convertDocxToPdf(
       throw new Error(errorMessage);
     }
 
-    return await response.blob();
+    // Verify response MIME type
+    const contentType = (response.headers.get('content-type') || '').toLowerCase().split(';')[0].trim();
+    if (contentType && !VALID_PDF_MIMES.includes(contentType)) {
+      throw new Error(`Remote converter returned invalid media type: ${contentType}. Expected PDF document.`);
+    }
+
+    // Verify Content-Length header if present
+    const contentLengthStr = response.headers.get('content-length');
+    if (contentLengthStr) {
+      const contentLength = parseInt(contentLengthStr, 10);
+      if (!isNaN(contentLength) && contentLength > MAX_FILE_SIZE_BYTES) {
+        throw new Error(`Converted response exceeds maximum allowed download size limit (${Math.round(MAX_FILE_SIZE_BYTES / (1024 * 1024))}MB).`);
+      }
+    }
+
+    const blob = await response.blob();
+    if (blob.size === 0) {
+      throw new Error('Remote converter returned an empty file (0 bytes).');
+    }
+    if (blob.size > MAX_FILE_SIZE_BYTES) {
+      throw new Error(`Converted response exceeds maximum allowed download size limit (${Math.round(MAX_FILE_SIZE_BYTES / (1024 * 1024))}MB).`);
+    }
+
+    return blob;
   } catch (err: unknown) {
     if (err instanceof DOMException && err.name === 'AbortError') {
       throw new Error(
@@ -194,7 +259,9 @@ export async function convertDocxToPdf(
     }
     throw err;
   } finally {
-    clearTimeout(timeoutId);
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
   }
 }
 

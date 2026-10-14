@@ -101,7 +101,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold
               bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400">
               <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-              <span>Free, Private & Zero Server Uploads</span>
+              <span>Private & Local-First Processing</span>
             </div>
             <h1 className="text-3xl sm:text-4xl md:text-5xl font-black text-stone-900 dark:text-white tracking-tight leading-tight">
               All Your File Tools.<br />
@@ -110,7 +110,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               </span>
             </h1>
             <p className="text-sm sm:text-base text-stone-600 dark:text-zinc-400 max-w-2xl">
-              Powerful high-speed local processing for PDFs and documents. Zero watermarks, complete privacy on your device.
+              High-speed in-browser processing for PDFs, images, and documents. Zero watermarks and on-device execution by default, with optional self-hosted remote conversion requiring explicit consent.
             </p>
           </div>
         </div>

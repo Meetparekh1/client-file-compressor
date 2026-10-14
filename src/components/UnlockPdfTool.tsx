@@ -1,9 +1,19 @@
 import React, { useState, useRef } from 'react';
-import { ArrowLeft, Unlock, Download, ShieldCheck, UploadCloud, Loader2 } from 'lucide-react';
+import { ArrowLeft, Unlock, Download, ShieldCheck, UploadCloud, Loader2, AlertCircle } from 'lucide-react';
 import { PDFDocument } from 'pdf-lib';
+import * as pdfjsLib from 'pdfjs-dist';
 import { saveAs } from 'file-saver';
-import { formatBytes } from '../lib/utils';
+import { formatBytes, sanitizeFilename } from '../lib/utils';
+import { validateFileSize } from '../lib/securityLimits';
 import type { ToastMessage } from './Toast';
+
+// Configure pdfjs worker if available in browser
+if (typeof window !== 'undefined' && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+    'pdfjs-dist/build/pdf.worker.min.mjs',
+    import.meta.url
+  ).toString();
+}
 
 interface UnlockPdfToolProps {
   onBack: () => void;
@@ -15,38 +25,115 @@ export const UnlockPdfTool: React.FC<UnlockPdfToolProps> = ({ onBack, onToast })
   const [password, setPassword] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [unlockedBlob, setUnlockedBlob] = useState<Blob | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0];
     if (selected) {
+      if (!selected.name.toLowerCase().endsWith('.pdf') && selected.type !== 'application/pdf') {
+        onToast('Please select a valid PDF file.', 'error');
+        return;
+      }
+      try {
+        validateFileSize(selected);
+      } catch (err: unknown) {
+        onToast(err instanceof Error ? err.message : 'File exceeds size limit.', 'error');
+        return;
+      }
       setFile(selected);
       setUnlockedBlob(null);
+      setErrorMessage(null);
+      setPassword('');
     }
   };
 
   const handleUnlock = async () => {
-    if (!file) return;
+    if (!file || isProcessing) return;
     if (!password) {
       onToast('Please enter the password to unlock.', 'error');
       return;
     }
 
     setIsProcessing(true);
+    setErrorMessage(null);
     try {
       const arrayBuffer = await file.arrayBuffer();
-      const pdfDoc = await PDFDocument.load(arrayBuffer, { password } as any);
-      
+
+      // Step 1: Verify the password using pdfjs-dist
+      try {
+        const loadingTask = pdfjsLib.getDocument({
+          data: new Uint8Array(arrayBuffer),
+          password,
+        });
+        const verifiedDoc = await loadingTask.promise;
+        if (!verifiedDoc || verifiedDoc.numPages <= 0) {
+          throw new Error('PDF document could not be read with the provided password.');
+        }
+      } catch (err: any) {
+        if (err?.name === 'PasswordException' || err?.message?.toLowerCase().includes('password')) {
+          const msg = 'Incorrect password. Please verify the password and try again.';
+          setErrorMessage(msg);
+          onToast(msg, 'error');
+          return;
+        }
+        throw err;
+      }
+
+      // Step 2: Test if pdf-lib can decrypt or load this encryption revision
+      let pdfDoc: PDFDocument;
+      try {
+        // Attempt loading with password options
+        pdfDoc = await PDFDocument.load(arrayBuffer, { password } as any);
+      } catch (pdfLibErr: any) {
+        const errStr = (pdfLibErr?.message || '').toLowerCase();
+        if (errStr.includes('encrypted') || errStr.includes('encrypt') || errStr.includes('password')) {
+          const msg = 'This PDF uses advanced standard encryption (such as AES-256 or custom security handlers) not supported by the client-side decryption engine.';
+          setErrorMessage(msg);
+          onToast(msg, 'error');
+          return;
+        }
+        throw pdfLibErr;
+      }
+
+      // If document still reports isEncrypted without decrypting streams, we cannot claim success
+      if ((pdfDoc as any).isEncrypted) {
+        const msg = 'Unable to remove password: document contains unsupported encryption streams.';
+        setErrorMessage(msg);
+        onToast(msg, 'error');
+        return;
+      }
+
       const pdfBytes = await pdfDoc.save();
+      const outputBuffer = pdfBytes.buffer.slice(
+        pdfBytes.byteOffset,
+        pdfBytes.byteOffset + pdfBytes.byteLength
+      );
+
+      // Step 3: Re-verify that the produced output can actually be opened WITHOUT any password
+      try {
+        const verifyOpen = pdfjsLib.getDocument({ data: new Uint8Array(outputBuffer) });
+        const reopened = await verifyOpen.promise;
+        if (!reopened || reopened.numPages <= 0) {
+          throw new Error('Verification failed: Generated PDF could not be opened.');
+        }
+      } catch (verifyErr: any) {
+        if (verifyErr?.name === 'PasswordException' || verifyErr?.message?.toLowerCase().includes('password')) {
+          const msg = 'Verification failed: Output document remains password protected. Encryption was not removed.';
+          setErrorMessage(msg);
+          onToast(msg, 'error');
+          return;
+        }
+        throw verifyErr;
+      }
+
       const blob = new Blob([pdfBytes as any], { type: 'application/pdf' });
       setUnlockedBlob(blob);
-      onToast('PDF Unlocked successfully!', 'success');
-    } catch (err: any) {
-      if (err.message.includes('password')) {
-        onToast('Incorrect password or encrypted file type not supported.', 'error');
-      } else {
-        onToast('Failed to unlock PDF: ' + err.message, 'error');
-      }
+      onToast('PDF verified and unlocked successfully!', 'success');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to unlock PDF.';
+      setErrorMessage(msg);
+      onToast(msg, 'error');
     } finally {
       setIsProcessing(false);
     }
@@ -54,7 +141,9 @@ export const UnlockPdfTool: React.FC<UnlockPdfToolProps> = ({ onBack, onToast })
 
   const handleDownload = () => {
     if (unlockedBlob && file) {
-      saveAs(unlockedBlob, file.name.replace('.pdf', '_unlocked.pdf'));
+      const base = file.name.replace(/\.[^/.]+$/, '');
+      const safeFilename = sanitizeFilename(`${base}_unlocked.pdf`);
+      saveAs(unlockedBlob, safeFilename);
     }
   };
 
@@ -112,6 +201,12 @@ export const UnlockPdfTool: React.FC<UnlockPdfToolProps> = ({ onBack, onToast })
                   placeholder="Enter password..."
                 />
               </div>
+              {errorMessage && (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 dark:bg-rose-950/30 dark:border-rose-900/50 dark:text-rose-300 text-xs flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 dark:text-rose-400 mt-0.5" />
+                  <span className="leading-relaxed">{errorMessage}</span>
+                </div>
+              )}
               <button 
                 onClick={handleUnlock} 
                 disabled={isProcessing || !password}

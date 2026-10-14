@@ -101,6 +101,10 @@ export async function convertHtmlToPdf(
   htmlContent: string,
   onProgress?: (progress: number, stage: string) => void
 ): Promise<Blob> {
+  if (!htmlContent || typeof htmlContent !== 'string') {
+    throw new SecurityLimitError('HTML content must be a non-empty string.', 'upload');
+  }
+
   if (htmlContent.length > MAX_HTML_LENGTH) {
     throw new SecurityLimitError(
       `HTML content exceeds maximum allowed limit of ${Math.round(MAX_HTML_LENGTH / 1000)}KB.`,
@@ -110,45 +114,85 @@ export async function convertHtmlToPdf(
 
   return withExecutionTimeout(
     (async () => {
-      onProgress?.(10, 'Sanitizing HTML and preparing rendering environment...');
+      onProgress?.(10, 'Sanitizing HTML and preparing isolated rendering sandbox...');
       
       const safeHtml = sanitizeHtml(htmlContent);
 
-      // Create a hidden container
-      const container = document.createElement('div');
-      container.style.position = 'absolute';
-      container.style.top = '-9999px';
-      container.style.left = '-9999px';
-      container.style.width = '800px'; // fixed width for A4 proportion approximation
-      container.style.backgroundColor = '#ffffff';
-      container.style.padding = '20px';
-      container.innerHTML = safeHtml;
-      document.body.appendChild(container);
+      // Create an isolated sandbox iframe to restrict script execution and parent DOM access
+      const iframe = document.createElement('iframe');
+      // sandbox attribute without 'allow-scripts' or 'allow-same-origin' blocks script execution and parent DOM access
+      iframe.setAttribute('sandbox', 'allow-same-origin');
+      iframe.style.position = 'fixed';
+      iframe.style.top = '-9999px';
+      iframe.style.left = '-9999px';
+      iframe.style.width = '800px';
+      iframe.style.height = '1000px';
+      iframe.style.border = 'none';
+      iframe.style.opacity = '0';
+      iframe.style.pointerEvents = 'none';
+      iframe.style.zIndex = '-9999';
+
+      document.body.appendChild(iframe);
 
       try {
-        onProgress?.(40, 'Rendering HTML to Canvas...');
-        // Restrict CORS: useCORS false to prevent unrestricted cross-origin asset leakage
-        const canvas = await html2canvas(container, {
-          scale: 2, // higher resolution
+        const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+        if (!iframeDoc) {
+          throw new Error('Unable to initialize isolated rendering context.');
+        }
+
+        // Apply strict CSP meta tag and styling inside the iframe
+        iframeDoc.open();
+        iframeDoc.write(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:;">
+  <style>
+    body {
+      margin: 0;
+      padding: 20px;
+      background: #ffffff;
+      color: #000000;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      width: 760px;
+      word-break: break-word;
+    }
+    * { box-sizing: border-box; }
+  </style>
+</head>
+<body><div id="render-content">${safeHtml}</div></body>
+</html>`);
+        iframeDoc.close();
+
+        // Allow microtask ticks for layout calculation
+        await new Promise((resolve) => setTimeout(resolve, 100));
+
+        const renderTarget = iframeDoc.getElementById('render-content') || iframeDoc.body;
+
+        onProgress?.(45, 'Rendering HTML to Canvas...');
+        // Restrict CORS: useCORS false prevents external resource exfiltration
+        const canvas = await html2canvas(renderTarget as HTMLElement, {
+          scale: 2,
           useCORS: false,
+          allowTaint: false,
           logging: false,
         });
-        
-        onProgress?.(70, 'Building PDF...');
+
+        onProgress?.(75, 'Building PDF pages...');
         const imgData = canvas.toDataURL('image/jpeg', 0.95);
         const pdf = new jsPDF({
           orientation: 'portrait',
           unit: 'px',
-          format: 'a4'
+          format: 'a4',
         });
 
         const pdfWidth = pdf.internal.pageSize.getWidth();
         const pdfHeight = pdf.internal.pageSize.getHeight();
-        
+
         // Scale image to fit A4 width
         const imgProps = pdf.getImageProperties(imgData);
         const imgHeight = (imgProps.height * pdfWidth) / imgProps.width;
-        
+
         // Split long HTML across pages
         let heightLeft = imgHeight;
         let position = 0;
@@ -157,7 +201,7 @@ export async function convertHtmlToPdf(
         heightLeft -= pdfHeight;
 
         let pageCount = 1;
-        while (heightLeft >= 0) {
+        while (heightLeft > 0) {
           if (pageCount >= 50) {
             // Memory guard against endless page explosion
             break;
@@ -173,8 +217,16 @@ export async function convertHtmlToPdf(
         const blob = pdf.output('blob');
         return blob;
       } finally {
-        if (container.parentNode) {
-          document.body.removeChild(container);
+        // Guaranteed cleanup of isolated iframe and all DOM references
+        try {
+          if (iframe.contentWindow) {
+            iframe.src = 'about:blank';
+          }
+        } catch {
+          // Ignore origin/cross-window errors during unload
+        }
+        if (iframe.parentNode) {
+          iframe.parentNode.removeChild(iframe);
         }
       }
     })(),
