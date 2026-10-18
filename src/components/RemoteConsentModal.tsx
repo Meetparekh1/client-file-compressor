@@ -18,10 +18,6 @@ export const RemoteConsentModal: React.FC<RemoteConsentModalProps> = ({
   onConsentGranted,
   onCancel,
 }) => {
-  if (!isOpen) return null;
-
-  const endpoint = targetEndpoint || getConverterApiUrl();
-
   React.useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -30,6 +26,10 @@ export const RemoteConsentModal: React.FC<RemoteConsentModalProps> = ({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onCancel]);
+
+  if (!isOpen) return null;
+
+  const endpoint = targetEndpoint || getConverterApiUrl();
 
   const handleGrantConsent = () => {
     setRemoteProcessingConsent(true, endpoint);

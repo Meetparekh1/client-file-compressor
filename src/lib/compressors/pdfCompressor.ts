@@ -1,13 +1,6 @@
-import * as pdfjsLib from 'pdfjs-dist';
-import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import { pdfjsLib } from '../pdfjsClient';
 import { PDFDocument } from 'pdf-lib';
 import type { CompressionOptions, CompressionResult } from '../types';
-
-// Configure pdfjs worker locally via Vite asset URL, with fallback
-if (typeof window !== 'undefined') {
-  pdfjsLib.GlobalWorkerOptions.workerSrc =
-    pdfjsWorker || `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
-}
 
 function canvasToBlobSafe(canvas: HTMLCanvasElement, mime = 'image/jpeg', quality = 0.75): Promise<Blob> {
   return new Promise((resolve, reject) => {

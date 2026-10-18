@@ -32,7 +32,7 @@ describe('Phase 3 — Performance & Engine Quality Benchmarks', () => {
       const mockPdf = {
         numPages: 4,
         destroy: vi.fn().mockResolvedValue(undefined),
-        getPage: vi.fn().mockImplementation(async (pageNum: number) => ({
+        getPage: vi.fn().mockImplementation(async (_pageNum: number) => ({
           getViewport: vi.fn().mockReturnValue({ width: 200, height: 200 }),
           render: vi.fn().mockReturnValue({
             promise: Promise.resolve(),

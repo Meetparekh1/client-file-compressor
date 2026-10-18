@@ -1,11 +1,13 @@
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import { MAX_HTML_LENGTH, TIMEOUT_HTML_RENDER_MS, withExecutionTimeout, SecurityLimitError } from './securityLimits';
+import { cleanupCanvas } from './resourceManager';
 
 /**
  * Sanitizes user-provided HTML before mounting to DOM.
  * Strips script tags, iframes, executable objects, forms, inline event handlers,
- * dangerous style expressions, and non-whitelisted schemes to prevent DOM XSS.
+ * dangerous style expressions, non-whitelisted schemes, and external http/https image src
+ * to prevent DOM XSS, tracking pixel leaks, and SSRF.
  */
 export function sanitizeHtml(rawHtml: string): string {
   if (!rawHtml || typeof rawHtml !== 'string') return '';
@@ -69,6 +71,21 @@ export function sanitizeHtml(rawHtml: string): string {
           val.startsWith('data:image/svg+xml') ||
           val.includes('javascript:')
         ) {
+          attrsToRemove.push(attr.name);
+          continue;
+        }
+      }
+
+      // Restrict src attributes to safe local data/blob URLs only (SEC-003)
+      // Strips external http:, https:, protocol-relative //, and ftp URLs to prevent SSRF and tracking pixels
+      if (name === 'src') {
+        const isAllowedSrc =
+          val.startsWith('data:image/png') ||
+          val.startsWith('data:image/jpeg') ||
+          val.startsWith('data:image/jpg') ||
+          val.startsWith('data:image/webp') ||
+          val.startsWith('blob:');
+        if (!isAllowedSrc) {
           attrsToRemove.push(attr.name);
           continue;
         }
@@ -170,21 +187,23 @@ export async function convertHtmlToPdf(
         const renderTarget = iframeDoc.getElementById('render-content') || iframeDoc.body;
 
         onProgress?.(45, 'Rendering HTML to Canvas...');
-        // Restrict CORS: useCORS false prevents external resource exfiltration
-        const canvas = await html2canvas(renderTarget as HTMLElement, {
-          scale: 2,
-          useCORS: false,
-          allowTaint: false,
-          logging: false,
-        });
+        let canvas: HTMLCanvasElement | null = null;
+        try {
+          // Restrict CORS: useCORS false prevents external resource exfiltration
+          canvas = await html2canvas(renderTarget as HTMLElement, {
+            scale: 2,
+            useCORS: false,
+            allowTaint: false,
+            logging: false,
+          });
 
-        onProgress?.(75, 'Building PDF pages...');
-        const imgData = canvas.toDataURL('image/jpeg', 0.95);
-        const pdf = new jsPDF({
-          orientation: 'portrait',
-          unit: 'px',
-          format: 'a4',
-        });
+          onProgress?.(75, 'Building PDF pages...');
+          const imgData = canvas.toDataURL('image/jpeg', 0.95);
+          const pdf = new jsPDF({
+            orientation: 'portrait',
+            unit: 'px',
+            format: 'a4',
+          });
 
         const pdfWidth = pdf.internal.pageSize.getWidth();
         const pdfHeight = pdf.internal.pageSize.getHeight();
@@ -217,6 +236,11 @@ export async function convertHtmlToPdf(
         const blob = pdf.output('blob');
         return blob;
       } finally {
+        if (canvas) {
+          cleanupCanvas(canvas);
+        }
+      }
+    } finally {
         // Guaranteed cleanup of isolated iframe and all DOM references
         try {
           if (iframe.contentWindow) {

@@ -21,6 +21,7 @@ vi.mock('tesseract.js', () => ({
 
 vi.mock('pdfjs-dist', () => ({
   getDocument: vi.fn(),
+  GlobalWorkerOptions: { workerSrc: '' },
 }));
 
 describe('Resource Cleanup & Leak Prevention Suite', () => {

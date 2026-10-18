@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { addPageNumbersToPdf } from '../lib/advancedPdfEngines';
 import { formatBytes, sanitizeFilename } from '../lib/utils';
+import { validateFileSize } from '../lib/securityLimits';
 import { PDFDocument } from 'pdf-lib';
 import { saveAs } from 'file-saver';
 
@@ -30,6 +31,17 @@ export const PageNumbersTool: React.FC<PageNumbersToolProps> = ({ onBack, onToas
   const handleFileInput = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.length) return;
     const selected = e.target.files[0];
+    if (selected.type !== 'application/pdf' && !selected.name.toLowerCase().endsWith('.pdf')) {
+      onToast('Please upload a valid PDF document.', 'error');
+      return;
+    }
+    try {
+      validateFileSize(selected);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'File size exceeds limit.';
+      onToast(msg, 'error');
+      return;
+    }
     try {
       const buf = await selected.arrayBuffer();
       const doc = await PDFDocument.load(buf, { ignoreEncryption: true });

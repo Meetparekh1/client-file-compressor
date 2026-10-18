@@ -6,12 +6,15 @@ import {
   CheckCircle2, 
   Loader2, 
   ShieldCheck, 
-  FileText 
+  FileText,
+  Eye
 } from 'lucide-react';
 import { rotatePdfPages } from '../lib/advancedPdfEngines';
+import { parsePageRangeString } from '../lib/pdfOperations';
 import { formatBytes, sanitizeFilename } from '../lib/utils';
 import { PDFDocument } from 'pdf-lib';
 import { saveAs } from 'file-saver';
+import { DocumentViewerWorkspace } from './DocumentViewerWorkspace';
 
 interface RotatePdfToolProps {
   onBack: () => void;
@@ -26,6 +29,8 @@ export const RotatePdfTool: React.FC<RotatePdfToolProps> = ({ onBack, onToast })
   const [customRange, setCustomRange] = useState('1');
   const [isProcessing, setIsProcessing] = useState(false);
   const [resultBlob, setResultBlob] = useState<Blob | null>(null);
+  const [showEmbeddedViewer] = useState<boolean>(true);
+  const [isModalViewerOpen, setIsModalViewerOpen] = useState<boolean>(false);
 
   const handleFileInput = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.length) return;
@@ -47,7 +52,11 @@ export const RotatePdfTool: React.FC<RotatePdfToolProps> = ({ onBack, onToast })
       setIsProcessing(true);
       let pages: 'all' | number[] = 'all';
       if (targetMode === 'custom') {
-        pages = customRange.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
+        const parsed = parsePageRangeString(customRange, totalPages);
+        if (parsed.length === 0) {
+          throw new Error('Please enter valid page numbers to rotate (e.g. 1, 3, 5).');
+        }
+        pages = parsed;
       }
       const blob = await rotatePdfPages(file, angle, pages);
       setResultBlob(blob);
@@ -182,6 +191,36 @@ export const RotatePdfTool: React.FC<RotatePdfToolProps> = ({ onBack, onToast })
                   />
                 )}
               </div>
+
+              {/* Embedded Document Viewer Preview */}
+              {file && showEmbeddedViewer && (
+                <div className="pt-2">
+                  <div className="flex items-center justify-between pb-2">
+                    <span className="text-xs font-semibold text-stone-700 dark:text-zinc-300 flex items-center gap-1.5">
+                      <Eye className="w-3.5 h-3.5 text-blue-500" />
+                      Live Document Workspace Preview
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setIsModalViewerOpen(true)}
+                      className="text-xs text-blue-600 dark:text-blue-400 font-semibold hover:underline cursor-pointer flex items-center gap-1"
+                    >
+                      <span>Expand to Fullscreen</span>
+                    </button>
+                  </div>
+                  <DocumentViewerWorkspace
+                    file={resultBlob || file}
+                    fileName={file.name}
+                    compareFile={resultBlob ? file : null}
+                    compareFileName="Original PDF"
+                    mode="embedded"
+                    embeddedHeight="460px"
+                    initialRotation={resultBlob ? 0 : angle}
+                    badgeLabel={resultBlob ? 'Rotated' : `Pending +${angle}°`}
+                    badgeColorClass={resultBlob ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300'}
+                  />
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -194,10 +233,17 @@ export const RotatePdfTool: React.FC<RotatePdfToolProps> = ({ onBack, onToast })
               <span>Apply Rotation</span>
             </h2>
 
+            {file && (
+              <div className="flex items-center justify-between p-3 rounded-2xl bg-stone-50 dark:bg-[#181d28] border border-stone-200/80 dark:border-white/5 text-xs">
+                <span className="text-stone-600 dark:text-zinc-400">Preview Angle:</span>
+                <span className="font-mono font-bold text-blue-600 dark:text-blue-400">+{angle}°</span>
+              </div>
+            )}
+
             {!resultBlob ? (
               <button
                 onClick={handleRotate}
-                disabled={!file || isProcessing}
+                disabled={!file || isProcessing || (targetMode === 'custom' && !customRange.trim())}
                 className="w-full py-3 px-4 rounded-2xl font-semibold text-sm shadow-md transition-all flex items-center justify-center gap-2
                   bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               >
@@ -222,11 +268,34 @@ export const RotatePdfTool: React.FC<RotatePdfToolProps> = ({ onBack, onToast })
                   <Download className="w-4 h-4" />
                   <span>Download Rotated PDF</span>
                 </button>
+
+                <button
+                  onClick={() => setIsModalViewerOpen(true)}
+                  className="w-full py-2.5 px-3 rounded-xl border border-stone-200 dark:border-[#2a3243] text-stone-700 dark:text-zinc-300 hover:bg-stone-50 dark:hover:bg-[#1a202c] text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>Compare in Fullscreen</span>
+                </button>
               </div>
             )}
           </div>
         </div>
       </div>
+
+      {/* Fullscreen Document Viewer Modal */}
+      {isModalViewerOpen && file && (
+        <DocumentViewerWorkspace
+          file={resultBlob || file}
+          fileName={file.name}
+          compareFile={resultBlob ? file : null}
+          compareFileName="Original PDF"
+          mode="modal"
+          onClose={() => setIsModalViewerOpen(false)}
+          initialRotation={resultBlob ? 0 : angle}
+          badgeLabel={resultBlob ? 'Rotated' : `Pending +${angle}°`}
+          badgeColorClass={resultBlob ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300'}
+        />
+      )}
     </div>
   );
 };

@@ -14,6 +14,7 @@ import {
   Copy,
   Check,
   Sparkles,
+  Cloud,
 } from 'lucide-react';
 import { formatBytes, parseBytes, downloadFile } from '../lib/utils';
 import type { FileItem, TargetMode, OutputFormat } from '../lib/types';
@@ -209,6 +210,12 @@ export const CompressionItemCard: React.FC<CompressionItemCardProps> = ({
                   {item.name}
                 </h4>
                 {getCategoryBadge()}
+                {isConvertingDocument && (
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                    <Cloud className="w-2.5 h-2.5" />
+                    <span>Cloud</span>
+                  </span>
+                )}
               </div>
 
               <div className="flex items-center gap-2 mt-0.5 text-xs text-slate-500 dark:text-zinc-400 font-mono">
@@ -243,8 +250,8 @@ export const CompressionItemCard: React.FC<CompressionItemCardProps> = ({
             <div className="flex items-center gap-1 overflow-x-auto">
               {item.category === 'pdf' ? (
                 [
-                  { label: 'Compress PDF', value: 'original' },
-                  { label: 'To Word (DOCX)', value: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+                  { label: 'Compress PDF', value: 'original', isCloud: false },
+                  { label: 'To Word (DOCX)', value: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', isCloud: true },
                 ].map((fmt) => {
                   const isSelected = (item.outputFormat || 'original') === fmt.value;
                   return (
@@ -252,13 +259,14 @@ export const CompressionItemCard: React.FC<CompressionItemCardProps> = ({
                       key={fmt.value}
                       type="button"
                       onClick={() => onUpdateItem(item.id, { outputFormat: fmt.value as OutputFormat })}
-                      className={`px-2 py-0.5 rounded text-[10px] font-medium transition cursor-pointer ${
+                      className={`px-2 py-0.5 rounded text-[10px] font-medium transition cursor-pointer flex items-center gap-1 ${
                         isSelected
                           ? 'bg-blue-600 text-white dark:bg-blue-500/20 dark:text-blue-300 dark:border dark:border-blue-500/40 shadow-xs'
                           : 'bg-slate-100 hover:bg-slate-200/80 text-slate-700 border border-slate-200 dark:bg-[#14161a] dark:hover:bg-[#1d2027] dark:text-zinc-400 dark:hover:text-zinc-200 dark:border-[#232730]'
                       }`}
                     >
-                      {fmt.label}
+                      {fmt.isCloud && <Cloud className="w-2.5 h-2.5 opacity-80" />}
+                      <span>{fmt.label}</span>
                     </button>
                   );
                 })
@@ -266,10 +274,10 @@ export const CompressionItemCard: React.FC<CompressionItemCardProps> = ({
                 [
                   ...(isDocFile
                     ? []
-                    : [{ label: 'Compress Word', value: 'original' }]),
-                  { label: 'To PDF', value: 'application/pdf' },
+                    : [{ label: 'Compress Word', value: 'original', isCloud: false }]),
+                  { label: 'To PDF', value: 'application/pdf', isCloud: true },
                   ...(isDocFile
-                    ? [{ label: 'To DOCX', value: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }]
+                    ? [{ label: 'To DOCX', value: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', isCloud: false }]
                     : []),
                 ].map((fmt) => {
                   const currentFmt = item.outputFormat || (isDocFile ? 'application/pdf' : 'original');
@@ -279,13 +287,14 @@ export const CompressionItemCard: React.FC<CompressionItemCardProps> = ({
                       key={fmt.value}
                       type="button"
                       onClick={() => onUpdateItem(item.id, { outputFormat: fmt.value as OutputFormat })}
-                      className={`px-2 py-0.5 rounded text-[10px] font-medium transition cursor-pointer ${
+                      className={`px-2 py-0.5 rounded text-[10px] font-medium transition cursor-pointer flex items-center gap-1 ${
                         isSelected
                           ? 'bg-blue-600 text-white dark:bg-blue-500/20 dark:text-blue-300 dark:border dark:border-blue-500/40 shadow-xs'
                           : 'bg-slate-100 hover:bg-slate-200/80 text-slate-700 border border-slate-200 dark:bg-[#14161a] dark:hover:bg-[#1d2027] dark:text-zinc-400 dark:hover:text-zinc-200 dark:border-[#232730]'
                       }`}
                     >
-                      {fmt.label}
+                      {fmt.isCloud && <Cloud className="w-2.5 h-2.5 opacity-80" />}
+                      <span>{fmt.label}</span>
                     </button>
                   );
                 })
@@ -329,8 +338,8 @@ export const CompressionItemCard: React.FC<CompressionItemCardProps> = ({
               </div>
               <p className="text-[11px] text-slate-600 dark:text-zinc-400 leading-relaxed">
                 {item.category === 'pdf'
-                  ? 'Reconstructs tables, shapes, fonts, and inline layout into an editable Word (.docx).'
-                  : 'Renders Word document to PDF using headless LibreOffice with matching font metrics.'}
+                  ? 'Converts PDF into an editable Word (.docx) using Adobe PDF Services API (cloud conversion).'
+                  : 'Converts Word document to PDF using Adobe PDF Services API (cloud conversion).'}
               </p>
             </div>
           ) : (
@@ -655,28 +664,28 @@ export const CompressionItemCard: React.FC<CompressionItemCardProps> = ({
           )
         ) : (
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => onPreview(item)}
+              className="flex-1 py-2 px-2.5 rounded-xl border text-xs font-medium flex items-center justify-center gap-1.5 transition cursor-pointer
+                bg-slate-100 hover:bg-slate-200/80 border-slate-200 text-slate-700
+                dark:bg-[#181a20] dark:hover:bg-[#20232a] dark:border-[#272b33] dark:text-zinc-300"
+              title="Preview / Compare"
+            >
+              <Eye className="w-3.5 h-3.5 text-slate-500 dark:text-zinc-400" />
+              <span>Preview</span>
+            </button>
+
             {(item.category === 'image' || item.category === 'svg') && item.outputFormat !== 'application/pdf' && (
-              <>
-                <button
-                  onClick={() => onPreview(item)}
-                  className="flex-1 py-2 px-2.5 rounded-xl border text-xs font-medium flex items-center justify-center gap-1.5 transition cursor-pointer
-                    bg-slate-100 hover:bg-slate-200/80 border-slate-200 text-slate-700
-                    dark:bg-[#181a20] dark:hover:bg-[#20232a] dark:border-[#272b33] dark:text-zinc-300"
-                >
-                  <Eye className="w-3.5 h-3.5 text-slate-500 dark:text-zinc-400" />
-                  <span>Compare</span>
-                </button>
-                <button
-                  onClick={handleCopyImage}
-                  className="py-2 px-2.5 rounded-xl border text-xs font-medium flex items-center justify-center gap-1 transition cursor-pointer
-                    bg-slate-100 hover:bg-slate-200/80 border-slate-200 text-slate-700
-                    dark:bg-[#181a20] dark:hover:bg-[#20232a] dark:border-[#272b33] dark:text-zinc-300"
-                  title="Copy compressed image to clipboard"
-                >
-                  {copied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5 text-slate-500 dark:text-zinc-400" />}
-                  <span className="hidden sm:inline">{copied ? 'Copied' : 'Copy'}</span>
-                </button>
-              </>
+              <button
+                onClick={handleCopyImage}
+                className="py-2 px-2.5 rounded-xl border text-xs font-medium flex items-center justify-center gap-1 transition cursor-pointer
+                  bg-slate-100 hover:bg-slate-200/80 border-slate-200 text-slate-700
+                  dark:bg-[#181a20] dark:hover:bg-[#20232a] dark:border-[#272b33] dark:text-zinc-300"
+                title="Copy compressed image to clipboard"
+              >
+                {copied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5 text-slate-500 dark:text-zinc-400" />}
+                <span className="hidden sm:inline">{copied ? 'Copied' : 'Copy'}</span>
+              </button>
             )}
 
             <button

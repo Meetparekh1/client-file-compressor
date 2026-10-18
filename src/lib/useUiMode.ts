@@ -5,7 +5,7 @@ export type UiMode = 'classic' | 'glassy';
 export function useUiMode(): [UiMode, (mode: UiMode) => void] {
   const [uiMode, setUiMode] = useState<UiMode>(() => {
     if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('docukit-ui-mode');
+      const stored = localStorage.getItem('shrinkbyte-ui-mode') || localStorage.getItem('docukit-ui-mode');
       if (stored === 'classic' || stored === 'glassy') {
         return stored;
       }
@@ -22,6 +22,7 @@ export function useUiMode(): [UiMode, (mode: UiMode) => void] {
       root.classList.add('theme-classic');
       root.classList.remove('theme-glassy');
     }
+    localStorage.setItem('shrinkbyte-ui-mode', uiMode);
     localStorage.setItem('docukit-ui-mode', uiMode);
   }, [uiMode]);
 

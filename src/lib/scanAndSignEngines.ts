@@ -1,4 +1,13 @@
 import { PDFDocument, rgb, StandardFonts, degrees } from 'pdf-lib';
+import { cleanupCanvas } from './resourceManager';
+import { 
+  validateFileSize, 
+  validatePageCount, 
+  MAX_PDF_PAGES, 
+  MAX_MERGE_IMAGES_COUNT,
+  TIMEOUT_GENERAL_MS,
+  withExecutionTimeout 
+} from './securityLimits';
 
 export type PageSizeFormat = 'a4' | 'letter' | 'auto';
 
@@ -42,76 +51,97 @@ export async function imagesToPdfDocument(
   if (files.length === 0) {
     throw new Error('Please select at least one image or scan to convert.');
   }
-
-  const pdfDoc = await PDFDocument.create();
-
-  // Standard dimensions in points (72 points per inch)
-  const DIMENSIONS: Record<'a4' | 'letter', [number, number]> = {
-    a4: [595.28, 841.89], // [width, height] in points
-    letter: [612.00, 792.00],
-  };
-
-  const margin = options.margin ?? 20;
-
-  for (let i = 0; i < files.length; i++) {
-    const file = files[i];
-    onProgress?.(Math.round(((i) / files.length) * 100), file.name);
-
-    const { canvas, width: origW, height: origH } = await processImageElement(file, options.filter);
-    const pngDataUrl = canvas.toDataURL('image/png');
-    const pngImageBytes = await fetch(pngDataUrl).then(res => res.arrayBuffer());
-    const embeddedImage = await pdfDoc.embedPng(pngImageBytes);
-
-    let pageWidth: number;
-    let pageHeight: number;
-
-    if (options.pageSize === 'auto') {
-      pageWidth = origW;
-      pageHeight = origH;
-      const page = pdfDoc.addPage([pageWidth, pageHeight]);
-      page.drawImage(embeddedImage, {
-        x: 0,
-        y: 0,
-        width: pageWidth,
-        height: pageHeight,
-      });
-    } else {
-      const [stdW, stdH] = DIMENSIONS[options.pageSize];
-      const isLandscape = origW > origH;
-
-      if (options.orientation === 'landscape' || (options.orientation === 'auto' && isLandscape)) {
-        pageWidth = stdH;
-        pageHeight = stdW;
-      } else {
-        pageWidth = stdW;
-        pageHeight = stdH;
-      }
-
-      const availW = pageWidth - (margin * 2);
-      const availH = pageHeight - (margin * 2);
-
-      const scale = Math.min(availW / origW, availH / origH);
-      const drawW = origW * scale;
-      const drawH = origH * scale;
-
-      const drawX = margin + (availW - drawW) / 2;
-      const drawY = margin + (availH - drawH) / 2;
-
-      const page = pdfDoc.addPage([pageWidth, pageHeight]);
-      page.drawImage(embeddedImage, {
-        x: drawX,
-        y: drawY,
-        width: drawW,
-        height: drawH,
-      });
-    }
+  if (files.length > MAX_MERGE_IMAGES_COUNT) {
+    throw new Error(`Exceeded maximum allowed images count (${MAX_MERGE_IMAGES_COUNT}).`);
   }
 
-  onProgress?.(95, 'Saving document...');
-  const pdfBytes = await pdfDoc.save();
-  onProgress?.(100, 'Done');
+  for (const f of files) {
+    validateFileSize(f);
+  }
 
-  return new Blob([pdfBytes as Uint8Array<ArrayBuffer>], { type: 'application/pdf' });
+  return withExecutionTimeout(
+    (async () => {
+      const pdfDoc = await PDFDocument.create();
+
+      // Standard dimensions in points (72 points per inch)
+      const DIMENSIONS: Record<'a4' | 'letter', [number, number]> = {
+        a4: [595.28, 841.89], // [width, height] in points
+        letter: [612.00, 792.00],
+      };
+
+      const margin = options.margin ?? 20;
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        onProgress?.(Math.round(((i) / files.length) * 100), file.name);
+
+        const { canvas, width: origW, height: origH } = await processImageElement(file, options.filter);
+        let embeddedImage;
+
+        try {
+          const jpegBlob = await new Promise<Blob>((resolve) =>
+            canvas.toBlob((b) => resolve(b || new Blob([])), 'image/jpeg', 0.88)
+          );
+          const jpegBuffer = await jpegBlob.arrayBuffer();
+          embeddedImage = await pdfDoc.embedJpg(jpegBuffer);
+        } finally {
+          cleanupCanvas(canvas);
+        }
+
+        let pageWidth: number;
+        let pageHeight: number;
+
+        if (options.pageSize === 'auto') {
+          pageWidth = origW;
+          pageHeight = origH;
+          const page = pdfDoc.addPage([pageWidth, pageHeight]);
+          page.drawImage(embeddedImage, {
+            x: 0,
+            y: 0,
+            width: pageWidth,
+            height: pageHeight,
+          });
+        } else {
+          const [stdW, stdH] = DIMENSIONS[options.pageSize];
+          const isLandscape = origW > origH;
+
+          if (options.orientation === 'landscape' || (options.orientation === 'auto' && isLandscape)) {
+            pageWidth = stdH;
+            pageHeight = stdW;
+          } else {
+            pageWidth = stdW;
+            pageHeight = stdH;
+          }
+
+          const availW = pageWidth - (margin * 2);
+          const availH = pageHeight - (margin * 2);
+
+          const scale = Math.min(availW / origW, availH / origH);
+          const drawW = origW * scale;
+          const drawH = origH * scale;
+
+          const drawX = margin + (availW - drawW) / 2;
+          const drawY = margin + (availH - drawH) / 2;
+
+          const page = pdfDoc.addPage([pageWidth, pageHeight]);
+          page.drawImage(embeddedImage, {
+            x: drawX,
+            y: drawY,
+            width: drawW,
+            height: drawH,
+          });
+        }
+      }
+
+      onProgress?.(95, 'Saving document...');
+      const pdfBytes = await pdfDoc.save();
+      onProgress?.(100, 'Done');
+
+      return new Blob([pdfBytes as Uint8Array<ArrayBuffer>], { type: 'application/pdf' });
+    })(),
+    TIMEOUT_GENERAL_MS,
+    'Images to PDF'
+  );
 }
 
 export interface WatermarkOptions {
@@ -132,11 +162,16 @@ export async function applyWatermarkOrSignature(
   options: WatermarkOptions,
   onProgress?: (progress: number) => void
 ): Promise<Blob> {
-  onProgress?.(15);
-  const arrayBuffer = await sourcePdfFile.arrayBuffer();
-  const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
-  const totalPages = pdfDoc.getPageCount();
-  const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  validateFileSize(sourcePdfFile);
+
+  return withExecutionTimeout(
+    (async () => {
+    onProgress?.(15);
+    const arrayBuffer = await sourcePdfFile.arrayBuffer();
+    const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+    const totalPages = pdfDoc.getPageCount();
+    validatePageCount(totalPages, MAX_PDF_PAGES, 'Sign / Watermark PDF');
+    const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
   let embeddedSignature;
   if (options.signatureDataUrl) {
@@ -228,5 +263,9 @@ export async function applyWatermarkOrSignature(
   const pdfBytes = await pdfDoc.save();
   onProgress?.(100);
 
-  return new Blob([pdfBytes as Uint8Array<ArrayBuffer>], { type: 'application/pdf' });
+    return new Blob([pdfBytes as Uint8Array<ArrayBuffer>], { type: 'application/pdf' });
+    })(),
+    TIMEOUT_GENERAL_MS,
+    'Sign / Watermark PDF'
+  );
 }

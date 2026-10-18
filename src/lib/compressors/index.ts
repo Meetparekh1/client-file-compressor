@@ -57,27 +57,22 @@ export async function compressFile(
   if (category === 'pdf') {
     if (options.outputFormat === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
       assertRemoteProcessingConsent(options.remoteApiUrl);
-      options.onProgress?.(15, 'Contacting remote PDF-to-Word conversion service...');
-      try {
-        const docxBlob = await convertPdfToDocx(file, {
-          apiUrl: options.remoteApiUrl,
-          onProgress: (msg) => options.onProgress?.(60, msg),
-        });
+      options.onProgress?.(15, 'Contacting Adobe PDF Services API for PDF-to-Word conversion...');
+      const docxBlob = await convertPdfToDocx(file, {
+        apiUrl: options.remoteApiUrl,
+        onProgress: (msg) => options.onProgress?.(60, msg),
+      });
 
-        if (!docxBlob || docxBlob.size === 0) {
-          throw new Error('Remote converter produced an empty DOCX file.');
-        }
-
-        options.onProgress?.(100, 'PDF to Word conversion complete');
-        return {
-          blob: docxBlob,
-          accuracy: 100,
-          iterations: 1,
-        };
-      } catch (err: unknown) {
-        // Prevent any silent fallback or empty pseudo-success
-        throw err;
+      if (!docxBlob || docxBlob.size === 0) {
+        throw new Error('Remote converter produced an empty DOCX file.');
       }
+
+      options.onProgress?.(100, 'PDF to Word conversion complete');
+      return {
+        blob: docxBlob,
+        accuracy: 100,
+        iterations: 1,
+      };
     }
     return compressPdfToTarget(file, options);
   }
@@ -87,27 +82,22 @@ export async function compressFile(
     // If output format is PDF or file is legacy binary .doc, use converter microservice
     if (options.outputFormat === 'application/pdf' || name.endsWith('.doc')) {
       assertRemoteProcessingConsent(options.remoteApiUrl);
-      options.onProgress?.(15, 'Contacting remote Word-to-PDF conversion service (LibreOffice)...');
-      try {
-        const pdfBlob = await convertDocxToPdf(file, {
-          apiUrl: options.remoteApiUrl,
-          onProgress: (msg) => options.onProgress?.(60, msg),
-        });
+      options.onProgress?.(15, 'Contacting Adobe PDF Services API for Word-to-PDF conversion...');
+      const pdfBlob = await convertDocxToPdf(file, {
+        apiUrl: options.remoteApiUrl,
+        onProgress: (msg) => options.onProgress?.(60, msg),
+      });
 
-        if (!pdfBlob || pdfBlob.size === 0) {
-          throw new Error('Remote converter produced an empty PDF file.');
-        }
-
-        options.onProgress?.(100, 'Word to PDF conversion complete');
-        return {
-          blob: pdfBlob,
-          accuracy: 100,
-          iterations: 1,
-        };
-      } catch (err: unknown) {
-        // Prevent silent failure or misleading success
-        throw err;
+      if (!pdfBlob || pdfBlob.size === 0) {
+        throw new Error('Remote converter produced an empty PDF file.');
       }
+
+      options.onProgress?.(100, 'Word to PDF conversion complete');
+      return {
+        blob: pdfBlob,
+        accuracy: 100,
+        iterations: 1,
+      };
     }
 
     // Default: in-browser media compression for .docx

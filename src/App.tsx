@@ -1,22 +1,28 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Dashboard } from './components/Dashboard';
-import { MergePdfTool } from './components/MergePdfTool';
-import { SplitPdfTool } from './components/SplitPdfTool';
-import { ScanToPdfTool } from './components/ScanToPdfTool';
-import { SignWatermarkTool } from './components/SignWatermarkTool';
-import { RotatePdfTool } from './components/RotatePdfTool';
-import { DeletePagesTool } from './components/DeletePagesTool';
-import { PageNumbersTool } from './components/PageNumbersTool';
-import { PdfToImagesTool } from './components/PdfToImagesTool';
-import { FlattenPdfTool } from './components/FlattenPdfTool';
-import { TextToPdfTool } from './components/TextToPdfTool';
-import { PdfToOfficeTool } from './components/PdfToOfficeTool';
-import { AiSummarizerTool } from './components/AiSummarizerTool';
-import { OcrPdfTool } from './components/OcrPdfTool';
-import { HtmlToPdfTool } from './components/HtmlToPdfTool';
-import { EditPdfTool } from './components/EditPdfTool';
-import { UnlockPdfTool } from './components/UnlockPdfTool';
+
+// Lazy-loaded Tool Components for reduced initial bundle & memory footprint
+const MergePdfTool = lazy(() => import('./components/MergePdfTool').then(m => ({ default: m.MergePdfTool })));
+const SplitPdfTool = lazy(() => import('./components/SplitPdfTool').then(m => ({ default: m.SplitPdfTool })));
+const ScanToPdfTool = lazy(() => import('./components/ScanToPdfTool').then(m => ({ default: m.ScanToPdfTool })));
+const SignWatermarkTool = lazy(() => import('./components/SignWatermarkTool').then(m => ({ default: m.SignWatermarkTool })));
+const RotatePdfTool = lazy(() => import('./components/RotatePdfTool').then(m => ({ default: m.RotatePdfTool })));
+const DeletePagesTool = lazy(() => import('./components/DeletePagesTool').then(m => ({ default: m.DeletePagesTool })));
+const PageNumbersTool = lazy(() => import('./components/PageNumbersTool').then(m => ({ default: m.PageNumbersTool })));
+const PdfToImagesTool = lazy(() => import('./components/PdfToImagesTool').then(m => ({ default: m.PdfToImagesTool })));
+const FlattenPdfTool = lazy(() => import('./components/FlattenPdfTool').then(m => ({ default: m.FlattenPdfTool })));
+const TextToPdfTool = lazy(() => import('./components/TextToPdfTool').then(m => ({ default: m.TextToPdfTool })));
+const PdfToOfficeTool = lazy(() => import('./components/PdfToOfficeTool').then(m => ({ default: m.PdfToOfficeTool })));
+const WordToPdfTool = lazy(() => import('./components/WordToPdfTool').then(m => ({ default: m.WordToPdfTool })));
+const PdfOrganizerTool = lazy(() => import('./components/PdfOrganizerTool').then(m => ({ default: m.PdfOrganizerTool })));
+const ViewPdfTool = lazy(() => import('./components/ViewPdfTool').then(m => ({ default: m.ViewPdfTool })));
+const RecentFilesSection = lazy(() => import('./components/RecentFilesSection').then(m => ({ default: m.RecentFilesSection })));
+const AiSummarizerTool = lazy(() => import('./components/AiSummarizerTool').then(m => ({ default: m.AiSummarizerTool })));
+const OcrPdfTool = lazy(() => import('./components/OcrPdfTool').then(m => ({ default: m.OcrPdfTool })));
+const HtmlToPdfTool = lazy(() => import('./components/HtmlToPdfTool').then(m => ({ default: m.HtmlToPdfTool })));
+const EditPdfTool = lazy(() => import('./components/EditPdfTool').then(m => ({ default: m.EditPdfTool })));
+const UnlockPdfTool = lazy(() => import('./components/UnlockPdfTool').then(m => ({ default: m.UnlockPdfTool })));
 import { Dropzone } from './components/Dropzone';
 import { CompressionItemCard } from './components/CompressionItemCard';
 import { CompressionListView } from './components/CompressionListView';
@@ -34,7 +40,34 @@ import { saveAs } from 'file-saver';
 import type { FileItem, TargetMode, ToolTab, ViewMode, OutputFormat } from './lib/types';
 import type { ToolCategory } from './lib/toolsRegistry';
 import { MAX_FILE_SIZE_BYTES, MAX_TOTAL_BATCH_BYTES, MAX_BATCH_FILE_COUNT } from './lib/securityLimits';
-import { UploadCloud, LayoutGrid, List, ArrowLeft, ShieldCheck, Menu } from 'lucide-react';
+import { addHistoryEntry } from './lib/historyStore';
+import { UploadCloud, LayoutGrid, List, ArrowLeft, ShieldCheck, Menu, Cloud } from 'lucide-react';
+
+const KNOWN_VIEWS = new Set([
+  'dashboard',
+  'compress-pdf',
+  'pdf-to-word',
+  'pdf-to-office',
+  'word-to-pdf',
+  'merge-pdf',
+  'split-pdf',
+  'scan-pdf',
+  'sign-watermark-pdf',
+  'rotate-pdf',
+  'delete-pages',
+  'page-numbers',
+  'pdf-to-images',
+  'flatten-pdf',
+  'text-to-pdf',
+  'ai-summarizer',
+  'ocr-pdf',
+  'html-to-pdf',
+  'edit-pdf',
+  'unlock-pdf',
+  'organize-pdf',
+  'preview-pdf',
+  'history',
+]);
 
 export function App() {
   const [theme, toggleTheme] = useTheme();
@@ -48,6 +81,22 @@ export function App() {
 
   // Compression engine state
   const [items, setItems] = useState<FileItem[]>([]);
+  const itemsRef = useRef<FileItem[]>(items);
+  itemsRef.current = items;
+
+  const activeViewRef = useRef<string>(activeView);
+  activeViewRef.current = activeView;
+
+  // Cleanup object URLs on App unmount (MEM-002)
+  useEffect(() => {
+    return () => {
+      itemsRef.current.forEach((item) => {
+        if (item.originalPreviewUrl) URL.revokeObjectURL(item.originalPreviewUrl);
+        if (item.compressedPreviewUrl) URL.revokeObjectURL(item.compressedPreviewUrl);
+      });
+    };
+  }, []);
+
   const [activeTab] = useState<ToolTab>('all');
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [previewItem, setPreviewItem] = useState<FileItem | null>(null);
@@ -191,12 +240,13 @@ export function App() {
     [addToast]
   );
 
-  // Drag and drop listeners
+  // Drag and drop listeners (Guarded so child tools aren't hijacked)
   useEffect(() => {
     let dragCounter = 0;
 
     const handleDragEnter = (e: DragEvent) => {
       e.preventDefault();
+      if (activeViewRef.current !== 'dashboard' && activeViewRef.current !== 'compress-pdf') return;
       dragCounter++;
       if (e.dataTransfer?.types?.includes('Files')) {
         setIsWindowDragging(true);
@@ -205,6 +255,11 @@ export function App() {
 
     const handleDragLeave = (e: DragEvent) => {
       e.preventDefault();
+      if (activeViewRef.current !== 'dashboard' && activeViewRef.current !== 'compress-pdf') {
+        setIsWindowDragging(false);
+        dragCounter = 0;
+        return;
+      }
       dragCounter--;
       if (dragCounter <= 0) {
         dragCounter = 0;
@@ -213,10 +268,16 @@ export function App() {
     };
 
     const handleDragOver = (e: DragEvent) => {
+      if (activeViewRef.current !== 'dashboard' && activeViewRef.current !== 'compress-pdf') return;
       e.preventDefault();
     };
 
     const handleDrop = (e: DragEvent) => {
+      if (activeViewRef.current !== 'dashboard' && activeViewRef.current !== 'compress-pdf') {
+        setIsWindowDragging(false);
+        dragCounter = 0;
+        return;
+      }
       e.preventDefault();
       dragCounter = 0;
       setIsWindowDragging(false);
@@ -298,7 +359,7 @@ export function App() {
 
   const handleCompress = useCallback(
     async (id: string) => {
-      const item = items.find((i) => i.id === id);
+      const item = itemsRef.current.find((i) => i.id === id);
       if (!item) return;
 
       if (item.compressedPreviewUrl) {
@@ -367,6 +428,18 @@ export function App() {
           )
         );
 
+        const fileExt = item.name.split('.').pop() || 'bin';
+        addHistoryEntry({
+          toolId: 'compress-pdf',
+          toolName: 'File Compressor',
+          fileName: item.name,
+          fileSize: item.originalSize,
+          status: 'completed',
+          resultFileName: `${item.name.replace(/\.[^/.]+$/, '')}-compressed.${fileExt}`,
+          resultSize: result.blob.size,
+          resultBlob: result.blob,
+        }).catch(() => {});
+
         addToast(
           `"${item.name}" compressed to ${formatBytes(result.blob.size)} (-${savings.percent}%) in ${elapsedSec}s.`,
           'success'
@@ -390,7 +463,7 @@ export function App() {
         activeControllers.current.delete(id);
       }
     },
-    [items, addToast]
+    [addToast]
   );
 
   const handleRemove = useCallback((id: string) => {
@@ -410,12 +483,17 @@ export function App() {
   }, []);
 
   const handleCompressAll = useCallback(async () => {
-    const pendingItems = items.filter((i) => i.status !== 'completed');
-    for (const item of pendingItems) {
-      // Check if user stopped all before running next item
-      await handleCompress(item.id);
+    const pendingIds = itemsRef.current
+      .filter((i) => i.status !== 'completed')
+      .map((i) => i.id);
+    for (const id of pendingIds) {
+      // Check if user cancelled or item was removed
+      const currentItem = itemsRef.current.find((i) => i.id === id);
+      if (currentItem && currentItem.status !== 'completed') {
+        await handleCompress(id);
+      }
     }
-  }, [items, handleCompress]);
+  }, [handleCompress]);
 
   const handleClearAll = useCallback(() => {
     activeControllers.current.forEach((controller) => {
@@ -592,126 +670,175 @@ export function App() {
 
         {/* Dynamic Center Stage with Smooth Transitions */}
         <main key={activeView} className="flex-1 w-full min-w-0 page-transition-enter">
-          {activeView === 'dashboard' && (
+          {(activeView === 'dashboard' || !KNOWN_VIEWS.has(activeView)) && (
             <Dashboard
               onSelectTool={(toolId) => setActiveView(toolId)}
               selectedCategory={selectedCategory}
               onSelectCategory={setSelectedCategory}
               onQuickUpload={handleFilesAdded}
-            />
-          )}
-
-          {activeView === 'merge-pdf' && (
-            <MergePdfTool
-              onBack={() => setActiveView('dashboard')}
               onToast={addToast}
             />
           )}
 
-          {activeView === 'split-pdf' && (
-            <SplitPdfTool
-              onBack={() => setActiveView('dashboard')}
-              onToast={addToast}
-            />
-          )}
+          <Suspense fallback={
+            <div className="flex flex-col items-center justify-center p-16 space-y-3">
+              <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+              <p className="text-xs text-stone-500 dark:text-zinc-400 font-mono">Loading tool engine...</p>
+            </div>
+          }>
+            {(activeView === 'pdf-to-word' || activeView === 'pdf-to-office') && (
+              <PdfToOfficeTool
+                onBack={() => setActiveView('dashboard')}
+                onToast={addToast}
+              />
+            )}
 
-          {activeView === 'scan-pdf' && (
-            <ScanToPdfTool
-              onBack={() => setActiveView('dashboard')}
-              onToast={addToast}
-            />
-          )}
+            {activeView === 'word-to-pdf' && (
+              <WordToPdfTool
+                onBack={() => setActiveView('dashboard')}
+                onToast={addToast}
+              />
+            )}
 
-          {activeView === 'sign-watermark-pdf' && (
-            <SignWatermarkTool
-              onBack={() => setActiveView('dashboard')}
-              onToast={addToast}
-            />
-          )}
+            {activeView === 'organize-pdf' && (
+              <PdfOrganizerTool
+                onBack={() => setActiveView('dashboard')}
+                onToast={addToast}
+              />
+            )}
 
-          {activeView === 'rotate-pdf' && (
-            <RotatePdfTool
-              onBack={() => setActiveView('dashboard')}
-              onToast={addToast}
-            />
-          )}
+            {activeView === 'preview-pdf' && (
+              <ViewPdfTool
+                onBack={() => setActiveView('dashboard')}
+                onToast={addToast}
+              />
+            )}
 
-          {activeView === 'delete-pages' && (
-            <DeletePagesTool
-              onBack={() => setActiveView('dashboard')}
-              onToast={addToast}
-            />
-          )}
+            {activeView === 'merge-pdf' && (
+              <MergePdfTool
+                onBack={() => setActiveView('dashboard')}
+                onToast={addToast}
+              />
+            )}
 
-          {activeView === 'page-numbers' && (
-            <PageNumbersTool
-              onBack={() => setActiveView('dashboard')}
-              onToast={addToast}
-            />
-          )}
+            {activeView === 'split-pdf' && (
+              <SplitPdfTool
+                onBack={() => setActiveView('dashboard')}
+                onToast={addToast}
+              />
+            )}
 
-          {activeView === 'pdf-to-images' && (
-            <PdfToImagesTool
-              onBack={() => setActiveView('dashboard')}
-              onToast={addToast}
-            />
-          )}
+            {activeView === 'scan-pdf' && (
+              <ScanToPdfTool
+                onBack={() => setActiveView('dashboard')}
+                onToast={addToast}
+              />
+            )}
 
-          {activeView === 'flatten-pdf' && (
-            <FlattenPdfTool
-              onBack={() => setActiveView('dashboard')}
-              onToast={addToast}
-            />
-          )}
+            {activeView === 'sign-watermark-pdf' && (
+              <SignWatermarkTool
+                onBack={() => setActiveView('dashboard')}
+                onToast={addToast}
+              />
+            )}
 
-          {activeView === 'text-to-pdf' && (
-            <TextToPdfTool
-              onBack={() => setActiveView('dashboard')}
-              onToast={addToast}
-            />
-          )}
+            {activeView === 'rotate-pdf' && (
+              <RotatePdfTool
+                onBack={() => setActiveView('dashboard')}
+                onToast={addToast}
+              />
+            )}
 
-          {activeView === 'pdf-to-office' && (
-            <PdfToOfficeTool
-              onBack={() => setActiveView('dashboard')}
-              onToast={addToast}
-            />
-          )}
+            {activeView === 'delete-pages' && (
+              <DeletePagesTool
+                onBack={() => setActiveView('dashboard')}
+                onToast={addToast}
+              />
+            )}
 
-          {activeView === 'ai-summarizer' && (
-            <AiSummarizerTool
-              onBack={() => setActiveView('dashboard')}
-              onToast={addToast}
-            />
-          )}
+            {activeView === 'page-numbers' && (
+              <PageNumbersTool
+                onBack={() => setActiveView('dashboard')}
+                onToast={addToast}
+              />
+            )}
 
-          {activeView === 'ocr-pdf' && (
-            <OcrPdfTool
-              onBack={() => setActiveView('dashboard')}
-              onToast={addToast}
-            />
-          )}
+            {activeView === 'pdf-to-images' && (
+              <PdfToImagesTool
+                onBack={() => setActiveView('dashboard')}
+                onToast={addToast}
+              />
+            )}
 
-          {activeView === 'html-to-pdf' && (
-            <HtmlToPdfTool
-              onBack={() => setActiveView('dashboard')}
-              onToast={addToast}
-            />
-          )}
+            {activeView === 'flatten-pdf' && (
+              <FlattenPdfTool
+                onBack={() => setActiveView('dashboard')}
+                onToast={addToast}
+              />
+            )}
 
-          {activeView === 'edit-pdf' && (
-            <EditPdfTool
-              onBack={() => setActiveView('dashboard')}
-              onToast={addToast}
-            />
-          )}
+            {activeView === 'text-to-pdf' && (
+              <TextToPdfTool
+                onBack={() => setActiveView('dashboard')}
+                onToast={addToast}
+              />
+            )}
 
-          {activeView === 'unlock-pdf' && (
-            <UnlockPdfTool
-              onBack={() => setActiveView('dashboard')}
-              onToast={addToast}
-            />
-          )}
+            {activeView === 'ai-summarizer' && (
+              <AiSummarizerTool
+                onBack={() => setActiveView('dashboard')}
+                onToast={addToast}
+              />
+            )}
+
+            {activeView === 'ocr-pdf' && (
+              <OcrPdfTool
+                onBack={() => setActiveView('dashboard')}
+                onToast={addToast}
+              />
+            )}
+
+            {activeView === 'html-to-pdf' && (
+              <HtmlToPdfTool
+                onBack={() => setActiveView('dashboard')}
+                onToast={addToast}
+              />
+            )}
+
+            {activeView === 'edit-pdf' && (
+              <EditPdfTool
+                onBack={() => setActiveView('dashboard')}
+                onToast={addToast}
+              />
+            )}
+
+            {activeView === 'unlock-pdf' && (
+              <UnlockPdfTool
+                onBack={() => setActiveView('dashboard')}
+                onToast={addToast}
+              />
+            )}
+
+            {activeView === 'history' && (
+              <div className="max-w-5xl mx-auto space-y-6 animate-in fade-in duration-300">
+                <div className="flex items-center justify-between">
+                  <button
+                    onClick={() => setActiveView('dashboard')}
+                    className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-sm font-medium
+                      bg-white/80 border border-stone-200 text-stone-700 hover:bg-stone-100 hover:text-stone-900 shadow-xs
+                      dark:bg-[#161a23] dark:border-white/10 dark:text-zinc-300 dark:hover:bg-[#1f2430] dark:hover:text-white transition-all cursor-pointer"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                    <span>All Tools</span>
+                  </button>
+                </div>
+                <RecentFilesSection
+                  onSelectTool={(toolId) => setActiveView(toolId)}
+                  onToast={addToast}
+                />
+              </div>
+            )}
+          </Suspense>
 
           {activeView === 'compress-pdf' && (
             <div className="space-y-6 max-w-5xl mx-auto animate-in fade-in duration-300">
@@ -726,10 +853,21 @@ export function App() {
                   <span>All Tools</span>
                 </button>
 
-                <div className="flex items-center gap-2 text-xs font-medium px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400">
-                  <ShieldCheck className="w-3.5 h-3.5" />
-                  <span>100% On-Device Local Processing</span>
-                </div>
+                {items.some(
+                  (i) =>
+                    i.outputFormat === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+                    (i.category === 'docx' && (i.outputFormat === 'application/pdf' || i.name.toLowerCase().endsWith('.doc')))
+                ) ? (
+                  <div className="flex items-center gap-2 text-xs font-medium px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400">
+                    <Cloud className="w-3.5 h-3.5" />
+                    <span>Cloud-Assisted Document Conversion Active</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 text-xs font-medium px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400">
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <span>100% On-Device Local Processing</span>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -737,7 +875,7 @@ export function App() {
                   Compress Files to Exact Target Size
                 </h1>
                 <p className="text-sm text-stone-600 dark:text-zinc-400 mt-1">
-                  Specify target sizes for PDFs, images, DOCX and SVGs with local bisection precision. Zero server transit.
+                  Specify target sizes for PDFs, images, DOCX and SVGs with local bisection precision.
                 </p>
               </div>
 

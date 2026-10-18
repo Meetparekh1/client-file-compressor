@@ -24,19 +24,19 @@
 
   .light body,
   :root:not(.dark) body {
-    background-color: #fbf9f4;
-    color: #1c1917;
+    background-color: #f8fafc;
+    color: #0f172a;
   }
 }
 
 /* Subtle engineering dot pattern */
 .bg-grid-pattern {
-  background-image: radial-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px);
+  background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
   background-size: 24px 24px;
 }
 
 .light .bg-grid-pattern {
-  background-image: radial-gradient(rgba(15, 23, 42, 0.06) 1px, transparent 1px);
+  background-image: radial-gradient(rgba(15, 23, 42, 0.03) 1px, transparent 1px);
   background-size: 24px 24px;
 }
 
@@ -44,17 +44,16 @@
 .ambient-glow {
   position: absolute;
   top: -100px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 700px;
-  height: 400px;
-  background: radial-gradient(circle, rgba(59, 130, 246, 0.08) 0%, rgba(99, 102, 241, 0.04) 40%, transparent 70%);
+  right: -50px;
+  width: 600px;
+  height: 450px;
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.12) 0%, rgba(99, 102, 241, 0.04) 50%, transparent 75%);
   pointer-events: none;
   z-index: 0;
 }
 
 .light .ambient-glow {
-  background: radial-gradient(circle, rgba(59, 130, 246, 0.12) 0%, rgba(99, 102, 241, 0.06) 40%, transparent 70%);
+  background: radial-gradient(circle, rgba(186, 230, 253, 0.45) 0%, rgba(224, 242, 254, 0.25) 50%, transparent 75%);
 }
 
 /* Custom precision range slider */
@@ -151,28 +150,20 @@ input[type="range"]::-moz-range-thumb {
    DEEP FROSTED GLASS DESIGN SYSTEM (PHASE 1 & PHASE 2)
    ========================================================================== */
 
-/* Animated Dreamy Pastel Mesh Background for Glassy Mode */
+/* Clean Subtle Background Mesh matching screenshot */
 .bg-glassy-mesh {
-  background: radial-gradient(at 0% 0%, rgba(254, 205, 211, 0.55) 0px, transparent 55%),
-              radial-gradient(at 100% 0%, rgba(221, 214, 254, 0.55) 0px, transparent 55%),
-              radial-gradient(at 100% 100%, rgba(186, 230, 253, 0.55) 0px, transparent 55%),
-              radial-gradient(at 0% 100%, rgba(254, 215, 170, 0.45) 0px, transparent 55%),
-              radial-gradient(at 50% 50%, rgba(243, 232, 255, 0.5) 0px, transparent 65%),
-              linear-gradient(135deg, #fdf4f5 0%, #f4eef9 40%, #edf5fc 100%);
-  background-size: 160% 160%;
-  animation: meshDrift 22s ease-in-out infinite alternate;
+  background: radial-gradient(at 100% 0%, rgba(186, 230, 253, 0.5) 0px, transparent 50%),
+              radial-gradient(at 90% 25%, rgba(219, 234, 254, 0.35) 0px, transparent 40%),
+              linear-gradient(180deg, #f8fafc 0%, #f9fafb 100%);
+  background-size: 100% 100%;
 }
 
 .dark .bg-glassy-mesh,
 .theme-glassy.dark .bg-glassy-mesh {
-  background: radial-gradient(at 0% 0%, rgba(136, 19, 55, 0.3) 0px, transparent 55%),
-              radial-gradient(at 100% 0%, rgba(76, 29, 149, 0.35) 0px, transparent 55%),
-              radial-gradient(at 100% 100%, rgba(14, 116, 144, 0.3) 0px, transparent 55%),
-              radial-gradient(at 0% 100%, rgba(190, 24, 93, 0.25) 0px, transparent 55%),
-              radial-gradient(at 50% 50%, rgba(49, 46, 129, 0.3) 0px, transparent 65%),
-              linear-gradient(135deg, #090c15 0%, #0d1220 40%, #101728 100%);
-  background-size: 160% 160%;
-  animation: meshDrift 22s ease-in-out infinite alternate;
+  background: radial-gradient(at 100% 0%, rgba(14, 116, 144, 0.15) 0px, transparent 50%),
+              radial-gradient(at 85% 20%, rgba(30, 58, 138, 0.18) 0px, transparent 45%),
+              linear-gradient(180deg, #0b0e14 0%, #0d121c 100%);
+  background-size: 100% 100%;
 }
 
 @keyframes meshDrift {
@@ -368,8 +359,9 @@ input[type="range"]::-moz-range-thumb {
 /* Page Glide Transition */
 .page-transition-enter {
   opacity: 0;
-  transform: translateY(10px);
-  animation: slideFadeIn 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transform: translateY(8px);
+  animation: slideFadeIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
 }
 
 @keyframes slideFadeIn {
@@ -379,14 +371,65 @@ input[type="range"]::-moz-range-thumb {
   }
 }
 
-/* Smooth Theme Transitions */
-.theme-transitioning, 
-.theme-transitioning * {
-  transition: background-color 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease, background 0.4s ease, color 0.3s ease !important;
+/* ==========================================================================
+   HIGH-PERFORMANCE ZERO-STUTTER THEME VIEW TRANSITIONS (GPU ACCELERATED)
+   ========================================================================== */
+::view-transition-group(root),
+::view-transition-image-pair(root),
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+  pointer-events: none;
+}
+
+::view-transition-old(root) {
+  z-index: 1;
+  height: 100%;
+}
+
+::view-transition-new(root) {
+  z-index: 9999;
+  height: 100%;
+}
+
+/* Fallback Smooth Theme Transitions (Selective, high performance - zero layout lag) */
+.theme-transitioning,
+.theme-transitioning body,
+.theme-transitioning header,
+.theme-transitioning aside,
+.theme-transitioning nav,
+.theme-transitioning main,
+.theme-transitioning footer,
+.theme-transitioning .glass-card,
+.theme-transitioning .glass-sidebar,
+.theme-transitioning .glass-control,
+.theme-transitioning input,
+.theme-transitioning select,
+.theme-transitioning button,
+.theme-transitioning [role="dialog"],
+.theme-transitioning [role="menu"] {
+  transition: background-color 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+              color 0.5s ease,
+              box-shadow 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+              fill 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+              stroke 0.7s cubic-bezier(0.16, 1, 0.3, 1) !important;
 }
 
 /* Accessibility: Respect Reduced Motion */
 @media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+
+  .theme-transitioning,
+  .theme-transitioning * {
+    transition: none !important;
+  }
+  
   .bg-glassy-mesh,
   .animate-float-slow,
   .animate-float-reverse,
@@ -409,5 +452,32 @@ input[type="range"]::-moz-range-thumb {
   outline: 2px solid #818cf8 !important;
   outline-offset: 2px !important;
 }
+
+/* Staggered card animation for tools expansion */
+@keyframes cardFadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.card-stagger-enter {
+  animation: cardFadeInUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  opacity: 0;
+}
+
+/* Scrollbar none utility */
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 
 

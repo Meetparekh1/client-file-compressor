@@ -22,22 +22,6 @@ export const ApiSettingsModal: React.FC<ApiSettingsModalProps> = ({ isOpen, onCl
     }
   }
 
-  if (!isOpen) return null;
-
-  const handleTest = async () => {
-    setTesting(true);
-    setHealthStatus('idle');
-    const isOk = await checkConverterHealth(url);
-    setTesting(false);
-    setHealthStatus(isOk ? 'online' : 'offline');
-  };
-
-  const handleSave = () => {
-    setConverterApiUrl(url);
-    onSaved?.();
-    onClose();
-  };
-
   React.useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -46,6 +30,46 @@ export const ApiSettingsModal: React.FC<ApiSettingsModalProps> = ({ isOpen, onCl
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
+
+  if (!isOpen) return null;
+
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  const isValidHttpUrl = (urlString: string): boolean => {
+    try {
+      const parsed = new URL(urlString.trim());
+      return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    } catch {
+      return false;
+    }
+  };
+
+  const handleTest = async () => {
+    const trimmed = url.trim();
+    if (!isValidHttpUrl(trimmed)) {
+      setValidationError('Please enter a valid HTTP or HTTPS URL (e.g. http://localhost:7860)');
+      setHealthStatus('offline');
+      return;
+    }
+    setValidationError(null);
+    setTesting(true);
+    setHealthStatus('idle');
+    const isOk = await checkConverterHealth(trimmed);
+    setTesting(false);
+    setHealthStatus(isOk ? 'online' : 'offline');
+  };
+
+  const handleSave = () => {
+    const trimmed = url.trim();
+    if (!isValidHttpUrl(trimmed)) {
+      setValidationError('Please enter a valid HTTP or HTTPS URL (e.g. http://localhost:7860)');
+      return;
+    }
+    setValidationError(null);
+    setConverterApiUrl(trimmed);
+    onSaved?.();
+    onClose();
+  };
 
   return (
     <div 
@@ -109,6 +133,11 @@ export const ApiSettingsModal: React.FC<ApiSettingsModalProps> = ({ isOpen, onCl
                 {testing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : 'Ping'}
               </button>
             </div>
+            {validationError && (
+              <p className="mt-1.5 text-[11px] text-rose-600 dark:text-red-400 font-mono">
+                {validationError}
+              </p>
+            )}
           </div>
 
           {/* Test Status feedback */}
@@ -118,7 +147,7 @@ export const ApiSettingsModal: React.FC<ApiSettingsModalProps> = ({ isOpen, onCl
               dark:bg-emerald-950/30 dark:border-emerald-800/40 dark:text-emerald-300"
             >
               <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-              <span>Connected! LibreOffice & pdf2docx engine is active.</span>
+              <span>Connected! Adobe PDF Services Engine is active.</span>
             </div>
           )}
 
@@ -131,7 +160,7 @@ export const ApiSettingsModal: React.FC<ApiSettingsModalProps> = ({ isOpen, onCl
               <div>
                 <p className="font-semibold font-mono">Service not reachable at this URL</p>
                 <p className="mt-0.5 text-slate-500 dark:text-zinc-400">
-                  Ensure your Docker container is running locally (`docker run -p 7860:7860 converter-service`) or deployed to Render.
+                  Ensure the converter service is running (e.g. `python converter-service/main.py` or Docker) or update the API URL in Settings.
                 </p>
               </div>
             </div>

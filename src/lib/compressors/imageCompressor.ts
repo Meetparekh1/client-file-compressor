@@ -2,6 +2,7 @@ import UPNG from 'upng-js';
 import { PDFDocument } from 'pdf-lib';
 import type { CompressionOptions, CompressionResult } from '../types';
 import { prepareSvgForCanvas } from './svgCompressor';
+import { registerWorker, terminateWorker } from '../resourceManager';
 
 /**
  * Helper to convert canvas to blob with promise and AVIF fallback
@@ -384,55 +385,53 @@ async function quantizePngBuffer(
   width: number,
   height: number,
   colors: number,
+  worker?: Worker | null,
   signal?: AbortSignal
 ): Promise<ArrayBuffer> {
   if (signal?.aborted) {
     throw new DOMException('Compression cancelled by user', 'AbortError');
   }
 
-  // Check if Worker is supported in environment
-  if (typeof window !== 'undefined' && 'Worker' in window) {
-    let worker: Worker | null = null;
-    try {
-      worker = new Worker(new URL('../../workers/quantizeWorker.ts', import.meta.url), {
-        type: 'module',
-      });
+  // Use provided dedicated worker if available
+  if (worker) {
+    return await new Promise<ArrayBuffer>((resolve, reject) => {
+      const id = Math.random().toString(36).slice(2);
 
-      return await new Promise<ArrayBuffer>((resolve, reject) => {
-        const id = Math.random().toString(36).slice(2);
+      const cleanup = () => {
+        if (signal) signal.removeEventListener('abort', onAbort);
+        worker.removeEventListener('message', onMessage);
+        worker.removeEventListener('error', onError);
+      };
 
-        const onAbort = () => {
-          worker?.terminate();
-          reject(new DOMException('Compression cancelled by user', 'AbortError'));
-        };
+      const onAbort = () => {
+        cleanup();
+        reject(new DOMException('Compression cancelled by user', 'AbortError'));
+      };
 
-        if (signal) {
-          signal.addEventListener('abort', onAbort, { once: true });
+      const onMessage = (e: MessageEvent) => {
+        if (e.data.id === id) {
+          cleanup();
+          if (e.data.error) reject(new Error(e.data.error));
+          else resolve(e.data.pngBuffer);
         }
+      };
 
-        worker!.onmessage = (e: MessageEvent) => {
-          if (signal) signal.removeEventListener('abort', onAbort);
-          worker?.terminate();
-          if (e.data.id === id) {
-            if (e.data.error) reject(new Error(e.data.error));
-            else resolve(e.data.pngBuffer);
-          }
-        };
+      const onError = (err: ErrorEvent) => {
+        cleanup();
+        reject(err);
+      };
 
-        worker!.onerror = (err) => {
-          if (signal) signal.removeEventListener('abort', onAbort);
-          worker?.terminate();
-          reject(err);
-        };
+      if (signal) {
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
 
-        // Transfer buffer copy to worker
-        const copy = buffer.slice(0);
-        worker!.postMessage({ id, buffer: copy, width, height, colors }, [copy]);
-      });
-    } catch {
-      if (worker) worker.terminate();
-      // Worker creation or messaging failed; fall back to main thread
-    }
+      worker.addEventListener('message', onMessage);
+      worker.addEventListener('error', onError);
+
+      // Transfer buffer copy to worker zero-copy
+      const copy = buffer.slice(0);
+      worker.postMessage({ id, buffer: copy, width, height, colors }, [copy]);
+    });
   }
 
   // Main thread fallback
@@ -464,45 +463,59 @@ async function compressPNGWithTarget(
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) throw new Error('Canvas context missing');
 
+  // Spawn a single Web Worker for the entirety of this compression pass (PERF-003)
+  let worker: Worker | null = null;
+  if (typeof window !== 'undefined' && 'Worker' in window) {
+    try {
+      worker = new Worker(new URL('../../workers/quantizeWorker.ts', import.meta.url), {
+        type: 'module',
+      });
+      registerWorker(worker);
+    } catch {
+      worker = null;
+    }
+  }
+
   const colorSteps = [256, 128, 64, 32, 16];
   let bestBlob: Blob | null = null;
   let minBlob: Blob | null = null;
   let currentWidth = canvas.width;
   let currentHeight = canvas.height;
-
-  for (let i = 0; i < colorSteps.length; i++) {
-    if (signal?.aborted) {
-      throw new DOMException('Compression cancelled by user', 'AbortError');
-    }
-    iterations++;
-    const colors = colorSteps[i];
-    onProgress?.(30 + i * 10, `Quantizing PNG (${colors} colors)...`);
-
-    const imgData = ctx.getImageData(0, 0, currentWidth, currentHeight);
-    const pngBuffer = await quantizePngBuffer(
-      imgData.data.buffer,
-      currentWidth,
-      currentHeight,
-      colors,
-      signal
-    );
-    const candidateBlob = new Blob([pngBuffer], { type: 'image/png' });
-
-    if (!minBlob || candidateBlob.size < minBlob.size) {
-      minBlob = candidateBlob;
-    }
-
-    if (candidateBlob.size <= targetSizeBytes) {
-      bestBlob = candidateBlob;
-      break;
-    }
-  }
-
-  let activeBlob = bestBlob || minBlob;
-  let scaleRounds = 0;
   let tempCanvas: HTMLCanvasElement | null = null;
 
   try {
+    for (let i = 0; i < colorSteps.length; i++) {
+      if (signal?.aborted) {
+        throw new DOMException('Compression cancelled by user', 'AbortError');
+      }
+      iterations++;
+      const colors = colorSteps[i];
+      onProgress?.(30 + i * 10, `Quantizing PNG (${colors} colors)...`);
+
+      const imgData = ctx.getImageData(0, 0, currentWidth, currentHeight);
+      const pngBuffer = await quantizePngBuffer(
+        imgData.data.buffer,
+        currentWidth,
+        currentHeight,
+        colors,
+        worker,
+        signal
+      );
+      const candidateBlob = new Blob([pngBuffer], { type: 'image/png' });
+
+      if (!minBlob || candidateBlob.size < minBlob.size) {
+        minBlob = candidateBlob;
+      }
+
+      if (candidateBlob.size <= targetSizeBytes) {
+        bestBlob = candidateBlob;
+        break;
+      }
+    }
+
+    let activeBlob = bestBlob || minBlob;
+    let scaleRounds = 0;
+
     while (activeBlob && activeBlob.size > targetSizeBytes && scaleRounds < 3) {
       if (signal?.aborted) {
         throw new DOMException('Compression cancelled by user', 'AbortError');
@@ -530,6 +543,7 @@ async function compressPNGWithTarget(
           currentWidth,
           currentHeight,
           64,
+          worker,
           signal
         );
         activeBlob = new Blob([pngBuffer], { type: 'image/png' });
@@ -539,27 +553,30 @@ async function compressPNGWithTarget(
         }
       }
     }
+
+    const finalBlob = bestBlob || activeBlob || (await canvasToBlob(canvas, 'image/png'));
+    const accuracy = Math.max(
+      0,
+      Math.min(100, Math.round((1 - Math.abs(finalBlob.size - targetSizeBytes) / targetSizeBytes) * 1000) / 10)
+    );
+
+    onProgress?.(100, 'Completed');
+    return {
+      blob: finalBlob,
+      accuracy,
+      iterations,
+      originalWidth: origWidth,
+      originalHeight: origHeight,
+      newWidth: currentWidth,
+      newHeight: currentHeight,
+    };
   } finally {
+    if (worker) {
+      await terminateWorker(worker);
+    }
     if (tempCanvas) {
       tempCanvas.width = 0;
       tempCanvas.height = 0;
     }
   }
-
-  const finalBlob = bestBlob || activeBlob || (await canvasToBlob(canvas, 'image/png'));
-  const accuracy = Math.max(
-    0,
-    Math.min(100, Math.round((1 - Math.abs(finalBlob.size - targetSizeBytes) / targetSizeBytes) * 1000) / 10)
-  );
-
-  onProgress?.(100, 'Completed');
-  return {
-    blob: finalBlob,
-    accuracy,
-    iterations,
-    originalWidth: origWidth,
-    originalHeight: origHeight,
-    newWidth: currentWidth,
-    newHeight: currentHeight,
-  };
 }

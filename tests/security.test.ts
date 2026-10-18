@@ -46,6 +46,14 @@ describe('Phase 1 Security & Privacy Regression Suite', () => {
       expect(clean).not.toContain('onerror');
     });
 
+    it('strips external http/https/network src URLs while preserving safe data/blob image URLs', () => {
+      const payload = '<img src="https://evil.com/tracker.png" /><img src="http://localhost:8080/ssrf" /><img src="data:image/png;base64,iVBORw0KGgo=" />';
+      const clean = sanitizeHtml(payload);
+      expect(clean).not.toContain('https://evil.com/tracker.png');
+      expect(clean).not.toContain('http://localhost:8080/ssrf');
+      expect(clean).toContain('data:image/png;base64,iVBORw0KGgo=');
+    });
+
     it('enforces MAX_HTML_LENGTH truncation or limits in sanitizeHtml', () => {
       const hugeHtml = '<div>' + 'A'.repeat(MAX_HTML_LENGTH + 500) + '</div>';
       const sanitized = sanitizeHtml(hugeHtml);
@@ -217,10 +225,14 @@ describe('Phase 1 Security & Privacy Regression Suite', () => {
       }
     });
 
-    it('ensures pdf-to-office is correctly identified as hybrid destination', () => {
-      const pdfToOffice = TOOLS_REGISTRY.find((t) => t.id === 'pdf-to-office');
-      expect(pdfToOffice).toBeDefined();
-      expect(pdfToOffice?.destination).toBe('hybrid');
+    it('ensures pdf-to-word and word-to-pdf are correctly identified as hybrid destination', () => {
+      const pdfToWord = TOOLS_REGISTRY.find((t) => t.id === 'pdf-to-word');
+      expect(pdfToWord).toBeDefined();
+      expect(pdfToWord?.destination).toBe('hybrid');
+
+      const wordToPdf = TOOLS_REGISTRY.find((t) => t.id === 'word-to-pdf');
+      expect(wordToPdf).toBeDefined();
+      expect(wordToPdf?.destination).toBe('hybrid');
     });
 
     it('ensures ai-summarizer and ocr-pdf have accurate local designations', () => {

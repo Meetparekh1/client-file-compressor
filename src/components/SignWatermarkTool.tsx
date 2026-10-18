@@ -10,12 +10,15 @@ import {
   Eraser, 
   Type, 
   Stamp, 
-  FileText 
+  FileText,
+  Eye
 } from 'lucide-react';
 import { applyWatermarkOrSignature, type WatermarkOptions } from '../lib/scanAndSignEngines';
 import { formatBytes, sanitizeFilename } from '../lib/utils';
 import { PDFDocument } from 'pdf-lib';
+import { validateFileSize } from '../lib/securityLimits';
 import { saveAs } from 'file-saver';
+import { DocumentViewerWorkspace } from './DocumentViewerWorkspace';
 
 interface SignWatermarkToolProps {
   onBack: () => void;
@@ -42,6 +45,7 @@ export const SignWatermarkTool: React.FC<SignWatermarkToolProps> = ({ onBack, on
   const [isProcessing, setIsProcessing] = useState(false);
   const [resultBlob, setResultBlob] = useState<Blob | null>(null);
   const [isDone, setIsDone] = useState(false);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   // Setup signature drawing canvas
   useEffect(() => {
@@ -102,6 +106,14 @@ export const SignWatermarkTool: React.FC<SignWatermarkToolProps> = ({ onBack, on
     const selected = e.target.files[0];
     if (selected.type !== 'application/pdf' && !selected.name.toLowerCase().endsWith('.pdf')) {
       onToast('Please upload a valid PDF file.', 'error');
+      return;
+    }
+
+    try {
+      validateFileSize(selected);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'File size exceeds limit.';
+      onToast(msg, 'error');
       return;
     }
 
@@ -441,6 +453,15 @@ export const SignWatermarkTool: React.FC<SignWatermarkToolProps> = ({ onBack, on
                 </button>
 
                 <button
+                  type="button"
+                  onClick={() => setIsPreviewOpen(true)}
+                  className="w-full py-2.5 px-3 rounded-xl border border-stone-200 dark:border-[#2a3243] text-stone-700 dark:text-zinc-300 hover:bg-stone-50 dark:hover:bg-[#1a202c] text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Eye className="w-3.5 h-3.5 text-amber-500" />
+                  <span>Preview Stamped PDF Workspace</span>
+                </button>
+
+                <button
                   onClick={() => setIsDone(false)}
                   className="w-full py-2 px-3 text-xs text-stone-500 dark:text-zinc-400 hover:text-stone-900 dark:hover:text-white cursor-pointer"
                 >
@@ -448,9 +469,34 @@ export const SignWatermarkTool: React.FC<SignWatermarkToolProps> = ({ onBack, on
                 </button>
               </div>
             )}
+
+            {file && !isDone && (
+              <button
+                type="button"
+                onClick={() => setIsPreviewOpen(true)}
+                className="w-full py-2.5 px-3 rounded-xl border border-stone-200 dark:border-[#2a3243] text-stone-700 dark:text-zinc-300 hover:bg-stone-50 dark:hover:bg-[#1a202c] text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Eye className="w-3.5 h-3.5 text-amber-500" />
+                <span>Preview Document Workspace</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
+
+      {/* Document Viewer Workspace Modal */}
+      {isPreviewOpen && file && (
+        <DocumentViewerWorkspace
+          file={resultBlob || file}
+          fileName={file.name}
+          compareFile={resultBlob ? file : null}
+          compareFileName="Original PDF"
+          mode="modal"
+          onClose={() => setIsPreviewOpen(false)}
+          badgeLabel={resultBlob ? (activeMode === 'signature' ? 'Signed' : 'Watermarked') : 'Source PDF'}
+          badgeColorClass={resultBlob ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'}
+        />
+      )}
     </div>
   );
 };

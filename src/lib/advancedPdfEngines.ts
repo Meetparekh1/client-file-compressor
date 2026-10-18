@@ -1,5 +1,5 @@
 import { PDFDocument, degrees, rgb, StandardFonts } from 'pdf-lib';
-import * as pdfjsLib from 'pdfjs-dist';
+import { pdfjsLib } from './pdfjsClient';
 import JSZip from 'jszip';
 import { 
   validateFileSize, 
@@ -8,18 +8,6 @@ import {
   MAX_PDF_TO_IMAGES_PAGES 
 } from './securityLimits';
 import { cleanupCanvas } from './resourceManager';
-
-// Configure pdfjs worker if available
-if (typeof window !== 'undefined' && 'Worker' in window) {
-  try {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-      'pdfjs-dist/build/pdf.worker.min.mjs',
-      import.meta.url
-    ).toString();
-  } catch {
-    // fallback gracefully
-  }
-}
 
 /**
  * 1. ROTATE PDF
@@ -280,7 +268,7 @@ export async function textToPdf(
   currentY -= 26;
 
   // Author / Date metadata
-  const metaText = `Generated on ${new Date().toLocaleDateString()} ${author ? `• by ${author}` : ''}`;
+  const metaText = `Generated on ${new Date().toLocaleDateString()} ${author ? `- by ${author}` : ''}`;
   page.drawText(metaText, {
     x: margin,
     y: currentY,

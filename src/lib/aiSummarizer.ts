@@ -1,20 +1,9 @@
-import * as pdfjsLib from 'pdfjs-dist';
+import { pdfjsLib } from './pdfjsClient';
 import { pipeline, env } from '@xenova/transformers';
 
 // Configure transformers.js
 env.allowLocalModels = false; // We use HuggingFace remote models downloaded to cache
 env.useBrowserCache = true;
-
-if (typeof window !== 'undefined' && 'Worker' in window) {
-  try {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-      'pdfjs-dist/build/pdf.worker.min.mjs',
-      import.meta.url
-    ).toString();
-  } catch {
-    // Fallback
-  }
-}
 
 export type SummaryMode = 'executive' | 'comprehensive' | 'action';
 
@@ -128,21 +117,28 @@ export async function summarizePdfDocument(
   const numPages = pdf.numPages;
 
   if (!numPages || numPages <= 0) {
+    try { await pdf.destroy(); } catch {}
     throw new Error('PDF document has no pages.');
   }
 
   let allText = '';
-  for (let i = 1; i <= numPages; i++) {
-    if (signal?.aborted) {
-      throw new DOMException('Summarization cancelled by user', 'AbortError');
-    }
+  try {
+    for (let i = 1; i <= numPages; i++) {
+      if (signal?.aborted) {
+        throw new DOMException('Summarization cancelled by user', 'AbortError');
+      }
 
-    onProgress?.(`Extracting text from page ${i}...`, 5 + (15 * (i / numPages)));
-    const page = await pdf.getPage(i);
-    const content = await page.getTextContent();
-    const pageText = content.items.map((it: any) => it.str).join(' ');
-    allText += pageText + '\n\n';
-    page.cleanup?.();
+      onProgress?.(`Extracting text from page ${i}...`, 5 + (15 * (i / numPages)));
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      const pageText = content.items.map((it: any) => it.str).join(' ');
+      allText += pageText + '\n\n';
+      page.cleanup?.();
+    }
+  } finally {
+    try {
+      await pdf.destroy();
+    } catch {}
   }
 
   // Pre-process text (clean up whitespace)
@@ -226,18 +222,92 @@ export async function summarizePdfDocument(
 
   const trimmedSummary = finalSummary.trim();
   const sentences = trimmedSummary.split(/(?<=[.?!])\s+/).filter(s => s.trim().length > 5);
+
+  // Extract structured features (Q&A, formulas, code, numeric insights)
+  const allSentences = allText.split(/(?<=[.?!])\s+/);
+  
+  // 1. Q&A extraction
+  const questionsAndAnswers: QuestionAnswer[] = [];
+  for (let i = 0; i < allSentences.length; i++) {
+    const s = allSentences[i].trim();
+    if (s.endsWith('?') && s.length > 10 && questionsAndAnswers.length < 5) {
+      const ans = allSentences[i + 1]?.trim() || '';
+      if (ans.length > 10 && !ans.endsWith('?')) {
+        questionsAndAnswers.push({
+          question: s,
+          answer: ans,
+        });
+      }
+    }
+  }
+
+  // 2. Numeric Insights extraction
+  const numericInsights: any[] = [];
+  const statRegex = /\b(\$?\d+(?:\.\d+)?%?|\b\d{4}\b)\b.*?([a-zA-Z\s]{4,30})/g;
+  for (const s of allSentences) {
+    if (numericInsights.length >= 6) break;
+    let match;
+    while ((match = statRegex.exec(s)) !== null) {
+      if (numericInsights.length >= 6) break;
+      const val = match[1];
+      const context = match[0].trim();
+      if (val && context.length > val.length + 3) {
+        numericInsights.push({
+          value: val,
+          label: context,
+          context: s.trim().slice(0, 100),
+        });
+      }
+    }
+  }
+
+  // 3. Formulas extraction
+  const formulas: FormulaItem[] = [];
+  const formulaRegex = /([a-zA-Z_]\s*=\s*[^.,;]{3,30}|[a-zA-Z]\^[0-9]+|\b\d+\s*[\+\-\*\/]\s*\d+\b)/g;
+  for (const s of allSentences) {
+    if (formulas.length >= 4) break;
+    const match = s.match(formulaRegex);
+    if (match) {
+      for (const m of match) {
+        if (formulas.length < 4 && m.length >= 4 && !formulas.some(f => f.raw === m)) {
+          formulas.push({
+            raw: m.trim(),
+            context: s.trim().slice(0, 80),
+          });
+        }
+      }
+    }
+  }
+
+  // 4. Code Examples extraction
+  const codeExamples: CodeExample[] = [];
+  const codeRegex = /(?:function|const|let|var|def|class|import|return)\s+[a-zA-Z0-9_]+\s*\(?[^;{]*[;{]/g;
+  for (const s of allSentences) {
+    if (codeExamples.length >= 3) break;
+    const match = s.match(codeRegex);
+    if (match) {
+      for (const c of match) {
+        if (codeExamples.length < 3 && c.length > 8) {
+          codeExamples.push({
+            code: c.trim(),
+            language: c.includes('def ') ? 'python' : 'javascript',
+          });
+        }
+      }
+    }
+  }
   
   const result: SummaryResult = {
     documentTitle: file.name.replace(/\.[^/.]+$/, '') || 'AI Generated Summary',
-    documentType: 'general',
+    documentType: questionsAndAnswers.length > 0 ? 'qa-document' : formulas.length > 0 ? 'academic' : codeExamples.length > 0 ? 'technical' : 'general',
     executiveSummary: trimmedSummary,
     keyPoints: sentences.slice(0, 5).map(s => s.trim()),
     actionItems: mode === 'action' ? sentences.slice(0, 3).map(s => `Consider: ${s.trim()}`) : [],
-    numericInsights: [],
-    questionsAndAnswers: [],
-    formulas: [],
+    numericInsights,
+    questionsAndAnswers,
+    formulas,
     thematicSections: [{ title: 'Main Content', points: sentences.slice(0, 10) }],
-    codeExamples: [],
+    codeExamples,
     topics: [{ text: 'General', count: 1 }],
     stats: {
       wordCount: totalWords,

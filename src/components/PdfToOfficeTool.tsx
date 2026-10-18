@@ -1,92 +1,41 @@
 import React, { useState, useRef } from 'react';
 import {
-  FileSpreadsheet,
   FileText,
-  Presentation,
   UploadCloud,
   ArrowLeft,
-  ShieldCheck,
   Download,
   Loader2,
   CheckCircle2,
-  Settings2,
-  FileType,
   Sparkles,
-  Server,
-  Laptop,
-  AlertTriangle,
-  Info,
-  CheckCircle,
-  HelpCircle,
-  ArrowRight
+  RotateCcw,
+  AlertCircle,
+  Eye,
 } from 'lucide-react';
-import {
-  convertPdfToDocx,
-  convertPdfToXlsx,
-  convertPdfToPptx,
-  extractAndAnalyzePdf,
-  type OfficeFormat,
-  type DocumentAnalysis
-} from '../lib/officeConverter';
-import { convertPdfToDocx as remoteConvertPdfToDocx, checkConverterHealth, downloadBlob } from '../lib/remoteConverter';
+import { convertPdfToDocx, downloadBlob, checkConverterHealth } from '../lib/remoteConverter';
 import { formatBytes, sanitizeFilename } from '../lib/utils';
 import { parseFriendlyError } from '../lib/errorParser';
-import { RemoteConsentModal } from './RemoteConsentModal';
-import { hasRemoteProcessingConsent } from '../lib/remoteConsent';
 import { validateFileSize } from '../lib/securityLimits';
+import { setRemoteProcessingConsent } from '../lib/remoteConsent';
+import { addHistoryEntry } from '../lib/historyStore';
+import { DocumentViewerWorkspace } from './DocumentViewerWorkspace';
 import type { ToastMessage } from './Toast';
 
-interface PdfToOfficeToolProps {
+interface PdfToWordToolProps {
   onBack: () => void;
   onToast: (msg: string, type: ToastMessage['type']) => void;
+  initialFile?: File | null;
 }
 
-export const PdfToOfficeTool: React.FC<PdfToOfficeToolProps> = ({ onBack, onToast }) => {
-  const [file, setFile] = useState<File | null>(null);
-  const [selectedFormat, setSelectedFormat] = useState<OfficeFormat>('docx');
-  const [preservePageBreaks, setPreservePageBreaks] = useState(true);
-  const [forceContinuousExcel, setForceContinuousExcel] = useState(false);
-  const [useServerEngine, setUseServerEngine] = useState(false);
-  const [isServerAvailable, setIsServerAvailable] = useState<boolean | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysis, setAnalysis] = useState<DocumentAnalysis | null>(null);
+export const PdfToWordTool: React.FC<PdfToWordToolProps> = ({ onBack, onToast, initialFile }) => {
+  const [file, setFile] = useState<File | null>(initialFile || null);
   const [isConverting, setIsConverting] = useState(false);
   const [progressText, setProgressText] = useState('');
   const [progressPercent, setProgressPercent] = useState(0);
   const [convertedBlob, setConvertedBlob] = useState<Blob | null>(null);
   const [convertedName, setConvertedName] = useState('');
-  const [showIncompatibilityModal, setShowIncompatibilityModal] = useState(false);
-  const [showServerConsentModal, setShowServerConsentModal] = useState(false);
+  const [conversionError, setConversionError] = useState<string | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Analyze document characteristics upon file selection
-  const analyzeSelectedFile = async (selectedFile: File) => {
-    setIsAnalyzing(true);
-    setAnalysis(null);
-    try {
-      const { analysis: docAnalysis } = await extractAndAnalyzePdf(selectedFile);
-      setAnalysis(docAnalysis);
-      // Auto-suggest optimal format
-      if (docAnalysis.recommendedFormat) {
-        setSelectedFormat(docAnalysis.recommendedFormat);
-      }
-    } catch {
-      // Graceful fallback
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
-
-  const handleToggleServer = async (enabled: boolean) => {
-    setUseServerEngine(enabled);
-    if (enabled && isServerAvailable === null) {
-      const ok = await checkConverterHealth();
-      setIsServerAvailable(ok);
-      if (!ok) {
-        onToast('Remote converter server not detected at localhost:7860. Using local in-browser engine instead.', 'info');
-      }
-    }
-  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0];
@@ -104,12 +53,13 @@ export const PdfToOfficeTool: React.FC<PdfToOfficeToolProps> = ({ onBack, onToas
     }
     setFile(selected);
     setConvertedBlob(null);
-    setForceContinuousExcel(false);
-    analyzeSelectedFile(selected);
+    setConversionError(null);
+    checkConverterHealth().catch(() => {});
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     const dropped = e.dataTransfer.files?.[0];
     if (!dropped) return;
     if (dropped.type !== 'application/pdf' && !dropped.name.toLowerCase().endsWith('.pdf')) {
@@ -125,100 +75,69 @@ export const PdfToOfficeTool: React.FC<PdfToOfficeToolProps> = ({ onBack, onToas
     }
     setFile(dropped);
     setConvertedBlob(null);
-    setForceContinuousExcel(false);
-    analyzeSelectedFile(dropped);
+    setConversionError(null);
+    checkConverterHealth().catch(() => {});
   };
 
-  const handleSelectFormat = (fmt: OfficeFormat) => {
-    setSelectedFormat(fmt);
-    setConvertedBlob(null);
-
-    // If selecting Excel on a document with NO tables, prompt custom warning
-    if (fmt === 'xlsx' && analysis && !analysis.hasTabularData && !forceContinuousExcel) {
-      setShowIncompatibilityModal(true);
-    }
-  };
-
-  /** Actual conversion work — called only after all guards have passed */
-  const executeConvert = async () => {
-    if (!file) return;
+  const handleConvert = async () => {
+    if (!file || isConverting) return;
+    setRemoteProcessingConsent(true);
     setIsConverting(true);
-    setProgressPercent(10);
-    setProgressText('Reading PDF data in local memory...');
+    setConversionError(null);
+    setProgressPercent(15);
+    setProgressText('Connecting to conversion engine...');
 
     try {
-      let outputBlob: Blob;
       const baseName = sanitizeFilename(file.name.replace(/\.[^/.]+$/, ''));
-      const outputFileName = `${baseName}.${selectedFormat}`;
+      const outputFileName = `${baseName}.docx`;
 
-      if (useServerEngine && isServerAvailable && selectedFormat === 'docx') {
-        setProgressText('Converting with LibreOffice Server Engine...');
-        setProgressPercent(50);
-        outputBlob = await remoteConvertPdfToDocx(file, {
-          onProgress: (status) => setProgressText(status),
-        });
-      } else {
-        if (selectedFormat === 'docx') {
-          setProgressText('Extracting paragraphs, headings and XML tables...');
-          outputBlob = await convertPdfToDocx(file, {
-            preservePageBreaks,
-            onProgress: (curr, total) => {
-              setProgressPercent(Math.round((curr / total) * 90));
-              setProgressText(`Formatting page ${curr} of ${total} into Word Document...`);
-            },
-          });
-        } else if (selectedFormat === 'xlsx') {
-          setProgressText('Structuring spreadsheet grid and column widths...');
-          outputBlob = await convertPdfToXlsx(file, {
-            forceContinuousText: forceContinuousExcel,
-            onProgress: (curr, total) => {
-              setProgressPercent(Math.round((curr / total) * 90));
-              setProgressText(`Extracting tables from page ${curr} of ${total}...`);
-            },
-          });
-        } else {
-          setProgressText('Generating 16:9 widescreen presentation slides...');
-          outputBlob = await convertPdfToPptx(file, {
-            onProgress: (curr, total) => {
-              setProgressPercent(Math.round((curr / total) * 90));
-              setProgressText(`Building slide ${curr} of ${total}...`);
-            },
-          });
-        }
-      }
+      const outputBlob = await convertPdfToDocx(file, {
+        onProgress: (status) => {
+          setProgressText(status);
+          if (status.includes('Uploading')) setProgressPercent(45);
+          else if (status.includes('Processing')) setProgressPercent(75);
+          else if (status.includes('Validating')) setProgressPercent(90);
+        },
+      });
 
       setProgressPercent(100);
       setProgressText('Conversion completed!');
       setConvertedBlob(outputBlob);
       setConvertedName(outputFileName);
-      onToast(`Successfully converted to ${selectedFormat.toUpperCase()}!`, 'success');
+      addHistoryEntry({
+        toolId: 'pdf-to-word',
+        toolName: 'PDF to Word',
+        fileName: file.name,
+        fileSize: file.size,
+        status: 'completed',
+        resultFileName: outputFileName,
+        resultSize: outputBlob.size,
+        resultBlob: outputBlob,
+      }).catch(() => {});
+      onToast('Successfully converted PDF to Word (DOCX)!', 'success');
     } catch (err: unknown) {
       const friendly = parseFriendlyError(err);
-      onToast(friendly.title + ': ' + friendly.message, 'error');
+      const fullError = `${friendly.title}: ${friendly.message}`;
+      setConversionError(fullError);
+      onToast(fullError, 'error');
     } finally {
       setIsConverting(false);
     }
-  };
-
-  const handleConvert = () => {
-    if (!file) return;
-    // Guard: incompatible format
-    if (selectedFormat === 'xlsx' && analysis && !analysis.hasTabularData && !forceContinuousExcel) {
-      setShowIncompatibilityModal(true);
-      return;
-    }
-    // Remote consent guard
-    if (useServerEngine && isServerAvailable && selectedFormat === 'docx' && !hasRemoteProcessingConsent()) {
-      setShowServerConsentModal(true);
-      return;
-    }
-    executeConvert();
   };
 
   const handleDownload = () => {
     if (!convertedBlob) return;
     downloadBlob(convertedBlob, convertedName);
     onToast(`Downloaded ${convertedName}`, 'success');
+  };
+
+  const handleReset = () => {
+    setFile(null);
+    setConvertedBlob(null);
+    setConversionError(null);
+    setProgressPercent(0);
+    setProgressText('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   return (
@@ -235,23 +154,23 @@ export const PdfToOfficeTool: React.FC<PdfToOfficeToolProps> = ({ onBack, onToas
           <span>All Tools</span>
         </button>
 
-        <div className="flex items-center gap-2 text-xs font-medium px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400">
-          <ShieldCheck className="w-3.5 h-3.5" />
-          <span>100% On-Device Local Processing</span>
+        <div className="flex items-center gap-2 text-xs font-medium px-3 py-1 rounded-full border bg-blue-500/10 border-blue-500/20 text-blue-600 dark:text-blue-400">
+          <Sparkles className="w-3.5 h-3.5" />
+          <span>Adobe PDF Services</span>
         </div>
       </div>
 
       {/* Header */}
       <div>
-        <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 mb-2">
-          <FileType className="w-3.5 h-3.5" />
-          <span>Universal Office Suite</span>
+        <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-lg text-xs font-semibold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 mb-2">
+          <FileText className="w-3.5 h-3.5" />
+          <span>Document Converter</span>
         </div>
         <h1 className="text-2xl sm:text-3xl font-extrabold text-stone-900 dark:text-white tracking-tight">
-          PDF to Word, Excel &amp; PowerPoint
+          PDF to Word
         </h1>
         <p className="text-sm text-stone-600 dark:text-zinc-400 mt-1">
-          Intelligently converts PDF documents into editable DOCX, XLSX, and PPTX files with structure validation and table detection.
+          Convert PDF documents into fully editable Microsoft Word (.docx) files with preserved fonts, tables, and layouts.
         </p>
       </div>
 
@@ -261,7 +180,7 @@ export const PdfToOfficeTool: React.FC<PdfToOfficeToolProps> = ({ onBack, onToas
           onDragOver={(e) => e.preventDefault()}
           onDrop={handleDrop}
           onClick={() => fileInputRef.current?.click()}
-          className="group relative rounded-3xl border-2 border-dashed border-stone-300 dark:border-[#262c3a] hover:border-indigo-500/60 dark:hover:border-indigo-500/60 bg-white/50 dark:bg-[#121620]/60 p-8 sm:p-12 text-center transition-all cursor-pointer hover:shadow-lg"
+          className="group relative rounded-3xl border-2 border-dashed border-stone-300 dark:border-[#262c3a] hover:border-blue-500/60 dark:hover:border-blue-500/60 bg-white/50 dark:bg-[#121620]/60 p-8 sm:p-12 text-center transition-all cursor-pointer hover:shadow-lg"
         >
           <input
             ref={fileInputRef}
@@ -270,406 +189,172 @@ export const PdfToOfficeTool: React.FC<PdfToOfficeToolProps> = ({ onBack, onToas
             className="hidden"
             onChange={handleFileChange}
           />
-          <div className="w-16 h-16 rounded-2xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform">
+          <div className="w-16 h-16 rounded-2xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform">
             <UploadCloud className="w-8 h-8" />
           </div>
-          <h3 className="text-base font-bold text-stone-800 dark:text-zinc-200">
-            Click to upload or drag &amp; drop your PDF
+          <h3 className="text-base sm:text-lg font-bold text-stone-900 dark:text-white">
+            Choose a PDF file or drag it here
           </h3>
-          <p className="text-xs text-stone-500 dark:text-zinc-400 mt-1 max-w-sm mx-auto">
-            Compatible with single-page or multi-page documents. Analyzes text structure, tables, and slide orientations automatically.
+          <p className="text-xs text-stone-500 dark:text-zinc-400 mt-1.5">
+            Converts directly to editable Word document (.docx)
           </p>
         </div>
       ) : (
         <div className="space-y-6">
-          {/* File Card Info */}
-          <div className="flex flex-wrap items-center justify-between p-4 rounded-2xl bg-white dark:bg-[#131722] border border-stone-200/80 dark:border-[#222736] shadow-xs gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0 font-bold text-xs">
-                PDF
+          {/* File Card */}
+          <div className="p-4 sm:p-5 rounded-2xl border border-stone-200 dark:border-[#222838] bg-white dark:bg-[#121620] shadow-xs flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className="w-11 h-11 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+                <FileText className="w-6 h-6" />
               </div>
               <div className="min-w-0">
                 <p className="text-sm font-bold text-stone-900 dark:text-white truncate">
                   {file.name}
                 </p>
-                <p className="text-xs text-stone-500 dark:text-zinc-400">
-                  {formatBytes(file.size)} {analysis ? `• ${analysis.totalPages} pages • ${analysis.totalWords} words` : ''}
-                </p>
+                <div className="flex items-center gap-2 text-xs text-stone-500 dark:text-zinc-400 mt-0.5">
+                  <span>{formatBytes(file.size)}</span>
+                  <span>•</span>
+                  <span>Output: Microsoft Word (.docx)</span>
+                </div>
               </div>
             </div>
 
             <button
-              onClick={() => {
-                setFile(null);
-                setAnalysis(null);
-                setConvertedBlob(null);
-              }}
-              className="text-xs font-semibold px-3 py-1.5 rounded-xl border border-stone-200 dark:border-stone-700 text-stone-600 dark:text-zinc-400 hover:text-stone-900 dark:hover:text-white hover:bg-stone-100 dark:hover:bg-[#1b212c] transition cursor-pointer"
+              disabled={isConverting}
+              onClick={handleReset}
+              className="text-xs font-semibold text-stone-500 hover:text-stone-800 dark:hover:text-zinc-200 transition disabled:opacity-40 cursor-pointer"
             >
-              Choose Different File
+              Change file
             </button>
           </div>
 
-          {/* Document Intelligence Insights Banner */}
-          {isAnalyzing && (
-            <div className="p-3.5 rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/20 border border-indigo-200/60 dark:border-indigo-800/40 flex items-center gap-2.5 text-xs text-indigo-700 dark:text-indigo-300">
-              <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-              <span>Analyzing document layout, table density, and orientation...</span>
-            </div>
-          )}
-
-          {analysis && (
-            <div className={`p-4 rounded-2xl border flex items-start gap-3 text-xs leading-relaxed ${
-              analysis.hasTabularData 
-                ? 'bg-emerald-50/60 dark:bg-emerald-950/20 border-emerald-200/60 dark:border-emerald-800/40 text-emerald-800 dark:text-emerald-300'
-                : analysis.isLandscapePresentation
-                ? 'bg-amber-50/60 dark:bg-amber-950/20 border-amber-200/60 dark:border-amber-800/40 text-amber-800 dark:text-amber-300'
-                : 'bg-blue-50/60 dark:bg-blue-950/20 border-blue-200/60 dark:border-blue-800/40 text-blue-800 dark:text-blue-300'
-            }`}>
-              <Info className="w-4 h-4 shrink-0 mt-0.5" />
-              <div>
-                <span className="font-bold block text-sm mb-0.5">
-                  {analysis.hasTabularData
-                    ? `📊 Tabular Data Document (${analysis.tableCount} tables detected)`
-                    : analysis.isLandscapePresentation
-                    ? `🖥️ Presentation Slide Deck (${analysis.totalPages} landscape slides)`
-                    : '📄 Continuous Text Document (Articles, contracts, or report)'}
-                </span>
-                <span>
-                  {analysis.hasTabularData
-                    ? 'This PDF contains structured tables and numerical columns. Excellent match for Excel (.xlsx) or Word (.docx).'
-                    : analysis.isLandscapePresentation
-                    ? 'This PDF matches presentation proportions. Excellent match for PowerPoint (.pptx).'
-                    : 'This PDF consists of continuous narrative paragraphs. Word (.docx) is strongly recommended for clean layout and editable text.'}
-                </span>
-              </div>
-            </div>
-          )}
-
-          {/* Format Selection Grid */}
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-zinc-400 mb-3">
-              1. Select Output Office Format
-            </label>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-              {/* DOCX Card */}
-              <div
-                onClick={() => handleSelectFormat('docx')}
-                className={`p-4 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between ${
-                  selectedFormat === 'docx'
-                    ? 'border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/30 dark:border-indigo-500 shadow-sm'
-                    : 'border-stone-200 dark:border-[#222838] bg-white dark:bg-[#121620] hover:border-stone-300 dark:hover:border-stone-700'
-                }`}
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
-                      <FileText className="w-5 h-5" />
-                    </div>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                      High Fidelity
-                    </span>
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-bold text-stone-900 dark:text-white">Word (.docx)</h4>
-                    <span className="text-[11px] text-stone-500 dark:text-zinc-400">Editable Documents</span>
-                  </div>
-                  <p className="text-xs text-stone-600 dark:text-zinc-400 mt-2 leading-relaxed">
-                    Stitches continuous paragraphs, formats headings, bullet lists, and genuine XML tables.
-                  </p>
-                </div>
-
-                <div className="mt-3 pt-2.5 border-t border-stone-100 dark:border-white/5 flex items-center gap-1.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
-                  <CheckCircle className="w-3.5 h-3.5" />
-                  <span>Optimal for all narrative text</span>
-                </div>
-              </div>
-
-              {/* XLSX Card */}
-              <div
-                onClick={() => handleSelectFormat('xlsx')}
-                className={`p-4 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between ${
-                  selectedFormat === 'xlsx'
-                    ? 'border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/30 dark:border-indigo-500 shadow-sm'
-                    : 'border-stone-200 dark:border-[#222838] bg-white dark:bg-[#121620] hover:border-stone-300 dark:hover:border-stone-700'
-                }`}
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
-                      <FileSpreadsheet className="w-5 h-5" />
-                    </div>
-                    {analysis && !analysis.hasTabularData ? (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 flex items-center gap-1">
-                        <AlertTriangle className="w-3 h-3" />
-                        No Tables
-                      </span>
-                    ) : (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                        Spreadsheet Grid
-                      </span>
-                    )}
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-bold text-stone-900 dark:text-white">Excel (.xlsx)</h4>
-                    <span className="text-[11px] text-stone-500 dark:text-zinc-400">Data &amp; Tables</span>
-                  </div>
-                  <p className="text-xs text-stone-600 dark:text-zinc-400 mt-2 leading-relaxed">
-                    Extracts structured rows, columns, numerical formulas, and auto-sized spreadsheet cells.
-                  </p>
-                </div>
-
-                <div className="mt-3 pt-2.5 border-t border-stone-100 dark:border-white/5 flex items-center gap-1.5 text-[11px] font-semibold">
-                  {analysis && !analysis.hasTabularData ? (
-                    <span className="text-amber-600 dark:text-amber-400 flex items-center gap-1">
-                      <AlertTriangle className="w-3.5 h-3.5" />
-                      <span>Incompatible with plain text</span>
-                    </span>
-                  ) : (
-                    <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                      <CheckCircle className="w-3.5 h-3.5" />
-                      <span>Ready for table extraction</span>
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {/* PPTX Card */}
-              <div
-                onClick={() => handleSelectFormat('pptx')}
-                className={`p-4 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between ${
-                  selectedFormat === 'pptx'
-                    ? 'border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/30 dark:border-indigo-500 shadow-sm'
-                    : 'border-stone-200 dark:border-[#222838] bg-white dark:bg-[#121620] hover:border-stone-300 dark:hover:border-stone-700'
-                }`}
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
-                      <Presentation className="w-5 h-5" />
-                    </div>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                      16:9 Widescreen
-                    </span>
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-bold text-stone-900 dark:text-white">PowerPoint (.pptx)</h4>
-                    <span className="text-[11px] text-stone-500 dark:text-zinc-400">Slide Deck</span>
-                  </div>
-                  <p className="text-xs text-stone-600 dark:text-zinc-400 mt-2 leading-relaxed">
-                    Transforms pages into presentation slides with header titles and bulleted overview cards.
-                  </p>
-                </div>
-
-                <div className="mt-3 pt-2.5 border-t border-stone-100 dark:border-white/5 flex items-center gap-1.5 text-[11px] font-semibold text-stone-500 dark:text-zinc-400">
-                  <HelpCircle className="w-3.5 h-3.5 text-indigo-500" />
-                  <span>Condenses text into bullet slides</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Additional Options */}
-          <div className="p-4 rounded-2xl bg-stone-50 dark:bg-[#151924] border border-stone-200/80 dark:border-[#222838] space-y-3">
-            <div className="flex items-center gap-2 text-xs font-bold text-stone-700 dark:text-zinc-300">
-              <Settings2 className="w-4 h-4 text-indigo-500" />
-              <span>Conversion Preferences</span>
-            </div>
-
-            <div className="flex flex-wrap items-center justify-between gap-4 pt-1">
-              {selectedFormat === 'docx' && (
-                <label className="flex items-center gap-2.5 text-xs text-stone-700 dark:text-zinc-300 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={preservePageBreaks}
-                    onChange={(e) => setPreservePageBreaks(e.target.checked)}
-                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
-                  />
-                  <span>Preserve individual PDF page breaks in Word document</span>
-                </label>
-              )}
-
-              {selectedFormat === 'xlsx' && (
-                <label className="flex items-center gap-2.5 text-xs text-stone-700 dark:text-zinc-300 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={forceContinuousExcel}
-                    onChange={(e) => setForceContinuousExcel(e.target.checked)}
-                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
-                  />
-                  <span>Force export of non-tabular paragraphs into Column A</span>
-                </label>
-              )}
-
-              {/* Execution Engine Selector */}
-              <div className="flex items-center gap-2 text-xs">
-                <span className="text-stone-500 dark:text-zinc-400">Engine:</span>
-                <button
-                  type="button"
-                  onClick={() => handleToggleServer(false)}
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-medium transition cursor-pointer ${
-                    !useServerEngine
-                      ? 'bg-white dark:bg-[#202534] text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 shadow-xs'
-                      : 'text-stone-500 dark:text-zinc-400 hover:text-stone-800'
-                  }`}
-                >
-                  <Laptop className="w-3.5 h-3.5" />
-                  <span>On-Device (Offline)</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleToggleServer(true)}
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-medium transition cursor-pointer ${
-                    useServerEngine
-                      ? 'bg-white dark:bg-[#202534] text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 shadow-xs'
-                      : 'text-stone-500 dark:text-zinc-400 hover:text-stone-800'
-                  }`}
-                >
-                  <Server className="w-3.5 h-3.5" />
-                  <span>Server (LibreOffice)</span>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Progress / Status Display */}
+          {/* Progress / Status */}
           {isConverting && (
-            <div className="p-4 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/20 border border-indigo-200/60 dark:border-indigo-800/40 space-y-2">
-              <div className="flex items-center justify-between text-xs font-semibold text-indigo-700 dark:text-indigo-300">
+            <div className="p-5 rounded-2xl border border-blue-200 dark:border-blue-900/50 bg-blue-50/50 dark:bg-blue-950/20 space-y-3">
+              <div className="flex items-center justify-between text-xs font-semibold text-blue-700 dark:text-blue-300">
                 <span className="flex items-center gap-2">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  {progressText}
+                  <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+                  {progressText || 'Converting PDF to Word...'}
                 </span>
                 <span>{progressPercent}%</span>
               </div>
-              <div className="w-full bg-indigo-200/50 dark:bg-indigo-900/40 h-2 rounded-full overflow-hidden">
+              <div className="w-full bg-blue-200/60 dark:bg-blue-950 rounded-full h-2 overflow-hidden">
                 <div
-                  className="bg-indigo-600 h-full rounded-full transition-all duration-300"
+                  className="bg-blue-600 h-2 rounded-full transition-all duration-300 ease-out"
                   style={{ width: `${progressPercent}%` }}
                 />
               </div>
             </div>
           )}
 
-          {/* Action Trigger */}
-          <div className="flex flex-wrap items-center gap-3">
-            {!convertedBlob ? (
-              <button
-                disabled={isConverting}
-                onClick={handleConvert}
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl text-sm font-bold
-                  bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white shadow-md shadow-indigo-500/20
-                  disabled:opacity-50 disabled:cursor-not-allowed transition-all cursor-pointer"
-              >
-                {isConverting ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Converting Document...</span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-4 h-4" />
-                    <span>Convert to {selectedFormat.toUpperCase()}</span>
-                  </>
-                )}
-              </button>
-            ) : (
-              <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
-                <button
-                  onClick={handleDownload}
-                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl text-sm font-bold
-                    bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white shadow-md shadow-emerald-500/20 transition-all cursor-pointer"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>Download {convertedName}</span>
-                </button>
-
-                <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>Ready ({formatBytes(convertedBlob.size)})</span>
+          {/* Error Message & Retry */}
+          {conversionError && !isConverting && (
+            <div className="p-4 rounded-2xl border border-rose-200 dark:border-rose-900/40 bg-rose-50/70 dark:bg-rose-950/20 text-rose-800 dark:text-rose-300 text-xs space-y-3">
+              <div className="flex items-start gap-2.5">
+                <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold">Conversion Failed</p>
+                  <p className="mt-0.5 leading-relaxed text-rose-700 dark:text-rose-300">
+                    {conversionError}
+                  </p>
                 </div>
               </div>
-            )}
-          </div>
+              <div className="pt-1 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleConvert()}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-xs cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Retry Conversion</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Result / Download Card */}
+          {convertedBlob && !isConverting && (
+            <div className="p-6 rounded-2xl border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/60 dark:bg-emerald-950/20 space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                  <CheckCircle2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-stone-900 dark:text-white">
+                    Word Document Ready!
+                  </h3>
+                  <p className="text-xs text-stone-600 dark:text-zinc-400">
+                    {convertedName} ({formatBytes(convertedBlob.size)})
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3 pt-2">
+                <button
+                  onClick={handleDownload}
+                  className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-sm bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-500/20 active:scale-95 transition-all cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Download Word (.docx)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsPreviewOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-4 py-3 rounded-xl font-semibold text-xs border border-stone-200 dark:border-[#2a3243] text-stone-700 dark:text-zinc-300 hover:bg-stone-50 dark:hover:bg-[#1a202c] transition-all cursor-pointer"
+                >
+                  <Eye className="w-3.5 h-3.5 text-blue-500" />
+                  <span>Preview Source PDF</span>
+                </button>
+
+                <button
+                  onClick={handleReset}
+                  className="inline-flex items-center gap-2 px-4 py-3 rounded-xl font-medium text-xs bg-stone-100 hover:bg-stone-200 text-stone-700 dark:bg-[#1a1f2c] dark:hover:bg-[#252c3c] dark:text-zinc-300 transition-all cursor-pointer"
+                >
+                  <span>Convert Another File</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Action Button: Convert */}
+          {!convertedBlob && !isConverting && (
+            <div className="space-y-3">
+              <button
+                onClick={() => handleConvert()}
+                className="w-full inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-2xl font-bold text-sm bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/25 active:scale-[0.99] transition-all cursor-pointer"
+              >
+                <FileText className="w-4 h-4" />
+                <span>Convert to Word (DOCX)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsPreviewOpen(true)}
+                className="w-full inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-semibold border border-stone-200 dark:border-[#2a3243] text-stone-700 dark:text-zinc-300 hover:bg-stone-50 dark:hover:bg-[#1a202c] transition cursor-pointer"
+              >
+                <Eye className="w-3.5 h-3.5 text-blue-500" />
+                <span>Preview Source Document Workspace</span>
+              </button>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Incompatibility Custom Exception Modal */}
-      {showIncompatibilityModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-[#141824] rounded-3xl border border-stone-200 dark:border-[#252c3c] p-6 max-w-lg w-full shadow-2xl space-y-4">
-            <div className="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center">
-              <AlertTriangle className="w-6 h-6" />
-            </div>
-
-            <div>
-              <h3 className="text-lg font-bold text-stone-900 dark:text-white">
-                Incompatible Format: No Tabular Data Found
-              </h3>
-              <p className="text-xs sm:text-sm text-stone-600 dark:text-zinc-400 mt-2 leading-relaxed">
-                This PDF consists of <strong>continuous narrative text</strong> (articles, contract paragraphs, or reports). Excel spreadsheets require data organized into rows, columns, or financial tables.
-              </p>
-            </div>
-
-            <div className="p-3.5 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-xs text-blue-800 dark:text-blue-300 space-y-1">
-              <p className="font-semibold">Recommended Solution:</p>
-              <p>
-                Convert this document to <strong>Word (.docx)</strong> instead. It will preserve paragraphs, headings, and margins in an editable document format.
-              </p>
-            </div>
-
-            <div className="pt-2 flex flex-col sm:flex-row gap-2.5">
-              <button
-                onClick={() => {
-                  setSelectedFormat('docx');
-                  setShowIncompatibilityModal(false);
-                  onToast('Switched to Word (.docx) format.', 'info');
-                }}
-                className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold
-                  bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white shadow-md shadow-indigo-500/20 transition-all cursor-pointer"
-              >
-                <ArrowRight className="w-4 h-4" />
-                <span>Switch to Word (.docx) (Recommended)</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  setForceContinuousExcel(true);
-                  setShowIncompatibilityModal(false);
-                  onToast('Proceeding with Excel export (raw text mode).', 'info');
-                }}
-                className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold
-                  bg-stone-100 hover:bg-stone-200 text-stone-700 dark:bg-[#1e2330] dark:hover:bg-[#282f42] dark:text-zinc-300 transition-all cursor-pointer"
-              >
-                <span>Export to Excel Anyway</span>
-              </button>
-            </div>
-
-            <div className="text-center pt-1">
-              <button
-                onClick={() => setShowIncompatibilityModal(false)}
-                className="text-[11px] text-stone-400 hover:text-stone-600 dark:hover:text-zinc-300 transition"
-              >
-                Cancel and review file
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* Source PDF Document Viewer Workspace */}
+      {isPreviewOpen && file && (
+        <DocumentViewerWorkspace
+          file={file}
+          fileName={file.name}
+          mode="modal"
+          onClose={() => setIsPreviewOpen(false)}
+          badgeLabel="Source PDF"
+          badgeColorClass="bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+        />
       )}
-
-      {/* Standardized Remote Processing Consent Modal */}
-      <RemoteConsentModal
-        isOpen={showServerConsentModal}
-        toolName="PDF to Office (LibreOffice Server Engine)"
-        onConsentGranted={() => {
-          setShowServerConsentModal(false);
-          executeConvert();
-        }}
-        onCancel={() => {
-          setShowServerConsentModal(false);
-          setUseServerEngine(false);
-        }}
-      />
     </div>
   );
 };
+
+// Backward compatibility alias
+export const PdfToOfficeTool = PdfToWordTool;

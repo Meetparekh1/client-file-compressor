@@ -4,19 +4,46 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="100% client-side file compressor with ~99% accuracy target sizing. Compress Images, PDFs, and Word documents directly inside your browser without uploading to any server with Local File Engine." />
-    <title>Local File Engine - In-Browser Precision File Compressor</title>
+    <meta name="description" content="100% client-side document tools with ShrinkByte. Compress, convert, edit, and organize PDFs, images, and Word documents directly inside your browser without uploading to any server." />
+    <title>ShrinkByte — Document Tools for Everyone</title>
     <script>
       (function() {
         try {
-          var mode = localStorage.getItem('docukit-ui-mode');
-          if (mode === 'classic') {
-            document.documentElement.classList.add('theme-classic');
+          var root = document.documentElement;
+          // 1. Initialize Light / Dark theme
+          var stored = localStorage.getItem('local-file-engine-theme') ||
+                       localStorage.getItem('shrinkbyte-theme') ||
+                       localStorage.getItem('zeroupload-theme');
+          var isDark = true;
+          if (stored === 'light') {
+            isDark = false;
+          } else if (stored === 'dark') {
+            isDark = true;
+          } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+            isDark = false;
+          }
+          if (isDark) {
+            root.classList.add('dark');
+            root.classList.remove('light');
+            root.style.colorScheme = 'dark';
           } else {
-            document.documentElement.classList.add('theme-glassy');
+            root.classList.remove('dark');
+            root.classList.add('light');
+            root.style.colorScheme = 'light';
+          }
+
+          // 2. Initialize UI Mode (glassy vs classic)
+          var mode = localStorage.getItem('shrinkbyte-ui-mode') || localStorage.getItem('docukit-ui-mode');
+          if (mode === 'classic') {
+            root.classList.add('theme-classic');
+            root.classList.remove('theme-glassy');
+          } else {
+            root.classList.add('theme-glassy');
+            root.classList.remove('theme-classic');
           }
         } catch (e) {
-          document.documentElement.classList.add('theme-glassy');
+          document.documentElement.classList.add('dark', 'theme-glassy');
+          document.documentElement.style.colorScheme = 'dark';
         }
       })();
     </script>

@@ -12,12 +12,15 @@ import {
   ShieldCheck, 
   Plus, 
   FileText,
-  AlertCircle 
+  AlertCircle,
+  Eye,
 } from 'lucide-react';
 import { mergePdfFiles, type MergePdfItem } from '../lib/pdfOperations';
 import { formatBytes, sanitizeFilename } from '../lib/utils';
 import { parseFriendlyError } from '../lib/errorParser';
+import { validateFileSize } from '../lib/securityLimits';
 import { saveAs } from 'file-saver';
+import { DocumentViewerWorkspace } from './DocumentViewerWorkspace';
 
 interface MergePdfToolProps {
   onBack: () => void;
@@ -32,20 +35,35 @@ export const MergePdfTool: React.FC<MergePdfToolProps> = ({ onBack, onToast }) =
   const [isDone, setIsDone] = useState(false);
   const [resultBlob, setResultBlob] = useState<Blob | null>(null);
   const [resultSummary, setResultSummary] = useState<{ totalPages: number; size: number } | null>(null);
+  const [activePreviewDoc, setActivePreviewDoc] = useState<{ file: File | Blob; name: string } | null>(null);
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.length) return;
-    const addedFiles: MergePdfItem[] = Array.from(e.target.files)
-      .filter((file) => file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'))
-      .map((file) => ({
-        id: `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
-        file,
-        name: sanitizeFilename(file.name),
-        size: file.size,
-      }));
+    const rawFiles = Array.from(e.target.files);
+    const validPdfs: File[] = [];
 
-    if (addedFiles.length === 0) {
-      onToast('Please upload valid PDF documents.', 'error');
+    for (const f of rawFiles) {
+      if (f.type !== 'application/pdf' && !f.name.toLowerCase().endsWith('.pdf')) {
+        continue;
+      }
+      try {
+        validateFileSize(f);
+        validPdfs.push(f);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : `File "${f.name}" is invalid`;
+        onToast(msg, 'error');
+      }
+    }
+
+    const addedFiles: MergePdfItem[] = validPdfs.map((file) => ({
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+      file,
+      name: sanitizeFilename(file.name),
+      size: file.size,
+    }));
+
+    if (addedFiles.length === 0 && rawFiles.length > 0) {
+      onToast('Please upload valid PDF documents (max 100MB each).', 'error');
       return;
     }
 
@@ -206,6 +224,13 @@ export const MergePdfTool: React.FC<MergePdfToolProps> = ({ onBack, onToast }) =
 
                     <div className="flex items-center gap-1 shrink-0">
                       <button
+                        onClick={() => setActivePreviewDoc({ file: item.file, name: item.name })}
+                        title="Preview Document"
+                        className="p-1.5 rounded-lg text-stone-500 dark:text-zinc-400 hover:bg-stone-200 dark:hover:bg-zinc-700 transition-colors"
+                      >
+                        <Eye className="w-4 h-4 text-indigo-500" />
+                      </button>
+                      <button
                         onClick={() => moveUp(idx)}
                         disabled={idx === 0}
                         title="Move Up"
@@ -323,6 +348,22 @@ export const MergePdfTool: React.FC<MergePdfToolProps> = ({ onBack, onToast }) =
                 </button>
 
                 <button
+                  type="button"
+                  onClick={() => {
+                    if (resultBlob) {
+                      setActivePreviewDoc({
+                        file: resultBlob,
+                        name: outputFileName.endsWith('.pdf') ? outputFileName : `${outputFileName}.pdf`,
+                      });
+                    }
+                  }}
+                  className="w-full py-2.5 px-3 rounded-xl border border-stone-200 dark:border-[#2a3243] text-stone-700 dark:text-zinc-300 hover:bg-stone-50 dark:hover:bg-[#1a202c] text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Eye className="w-3.5 h-3.5 text-indigo-500" />
+                  <span>Preview Merged PDF Workspace</span>
+                </button>
+
+                <button
                   onClick={() => setIsDone(false)}
                   className="w-full py-2 px-3 text-xs text-stone-500 dark:text-zinc-400 hover:text-stone-900 dark:hover:text-white cursor-pointer"
                 >
@@ -333,6 +374,18 @@ export const MergePdfTool: React.FC<MergePdfToolProps> = ({ onBack, onToast }) =
           </div>
         </div>
       </div>
+
+      {/* Document Viewer Workspace Modal */}
+      {activePreviewDoc && (
+        <DocumentViewerWorkspace
+          file={activePreviewDoc.file}
+          fileName={activePreviewDoc.name}
+          mode="modal"
+          onClose={() => setActivePreviewDoc(null)}
+          badgeLabel={resultBlob === activePreviewDoc.file ? 'Merged Result' : 'Document Preview'}
+          badgeColorClass="bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300"
+        />
+      )}
     </div>
   );
 };

@@ -1,18 +1,6 @@
 import JSZip from 'jszip';
-import * as pdfjsLib from 'pdfjs-dist';
+import { pdfjsLib } from './pdfjsClient';
 import { validateFileSize, validatePageCount, MAX_PDF_PAGES } from './securityLimits';
-
-// Ensure PDF.js worker is registered
-if (typeof window !== 'undefined' && 'Worker' in window) {
-  try {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-      'pdfjs-dist/build/pdf.worker.min.mjs',
-      import.meta.url
-    ).toString();
-  } catch {
-    // Worker fallback
-  }
-}
 
 export type OfficeFormat = 'docx' | 'xlsx' | 'pptx';
 
@@ -25,6 +13,26 @@ export interface ExtractedTable {
   rows: ExtractedTableRow[];
 }
 
+export interface ExtractedRun {
+  text: string;
+  isBold?: boolean;
+  isItalic?: boolean;
+  fontSizePt?: number;
+  fontFamily?: string;
+}
+
+export type BlockType = 'heading' | 'paragraph' | 'bullet' | 'table';
+
+export interface ExtractedBlock {
+  type: BlockType;
+  headingLevel?: 1 | 2 | 3;
+  bulletChar?: string;
+  text?: string;
+  runs?: ExtractedRun[];
+  table?: ExtractedTable;
+  align?: 'left' | 'center' | 'right';
+}
+
 export interface ExtractedPageContent {
   pageNumber: number;
   width: number;
@@ -35,6 +43,10 @@ export interface ExtractedPageContent {
   bulletPoints: string[];
   tables: ExtractedTable[];
   rawText: string;
+  blocks?: ExtractedBlock[];
+  widthTwips?: number;
+  heightTwips?: number;
+  marginsTwips?: { top: number; right: number; bottom: number; left: number };
 }
 
 export interface DocumentAnalysis {
@@ -77,7 +89,42 @@ function escapeXml(unsafe: string): string {
 }
 
 /**
- * Extracts and reconstructs structured text, paragraphs, and tables from a PDF file.
+ * Normalizes font family names for OOXML compatibility.
+ */
+function normalizeFontFamily(raw: string): string {
+  const lower = (raw || '').toLowerCase();
+  if (lower.includes('times')) return 'Times New Roman';
+  if (lower.includes('courier')) return 'Courier New';
+  if (lower.includes('arial')) return 'Arial';
+  if (lower.includes('georgia')) return 'Georgia';
+  if (lower.includes('cambria')) return 'Cambria';
+  return 'Calibri';
+}
+
+interface RawPdfItem {
+  text: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  fontSizePt: number;
+  isBold: boolean;
+  isItalic: boolean;
+  fontFamily: string;
+}
+
+interface VisualLine {
+  y: number;
+  xMin: number;
+  xMax: number;
+  height: number;
+  runs: ExtractedRun[];
+  text: string;
+}
+
+/**
+ * Extracts and reconstructs structured text, paragraphs, headings, multi-column reading order,
+ * and tables from a PDF file.
  */
 export async function extractAndAnalyzePdf(
   file: File,
@@ -94,149 +141,331 @@ export async function extractAndAnalyzePdf(
   let totalTables = 0;
   let landscapeCount = 0;
 
-  for (let i = 1; i <= pdf.numPages; i++) {
-    onProgress?.(i, pdf.numPages);
-    const page = await pdf.getPage(i);
-    const viewport = page.getViewport({ scale: 1.0 });
-    const isLandscape = viewport.width > viewport.height;
-    if (isLandscape) landscapeCount++;
+  try {
+    for (let i = 1; i <= pdf.numPages; i++) {
+      onProgress?.(i, pdf.numPages);
+      const page = await pdf.getPage(i);
+      try {
+        const viewport = page.getViewport({ scale: 1.0 });
+        const isLandscape = viewport.width > viewport.height;
+        if (isLandscape) landscapeCount++;
 
     const textContent = await page.getTextContent();
+    const items: RawPdfItem[] = [];
+    const fontSizes: number[] = [];
 
-    interface RawItem {
-      text: string;
-      x: number;
-      y: number;
-      height: number;
-    }
-
-    const items: RawItem[] = [];
     for (const item of textContent.items) {
       if ('str' in item && item.str.trim().length > 0) {
+        const str = item.str;
+        const fontName = item.fontName || '';
+        const style = (textContent.styles && textContent.styles[fontName]) as { fontFamily?: string } | undefined;
+        const scaleY = item.transform ? Math.abs(item.transform[3]) : 12;
+        const fontSizePt = Math.max(scaleY, item.height || 10);
+        fontSizes.push(fontSizePt);
+
+        const isBold =
+          /bold|black|heavy|semibold/i.test(fontName) ||
+          (style?.fontFamily ? /bold/i.test(style.fontFamily) : false);
+        const isItalic =
+          /italic|oblique/i.test(fontName) ||
+          (style?.fontFamily ? /italic/i.test(style.fontFamily) : false);
+        const fontFamily = normalizeFontFamily(style?.fontFamily || fontName);
+
         items.push({
-          text: item.str,
+          text: str,
           x: item.transform[4],
           y: item.transform[5],
-          height: item.height || 12,
+          width: item.width || str.length * fontSizePt * 0.5,
+          height: item.height || fontSizePt,
+          fontSizePt,
+          isBold,
+          isItalic,
+          fontFamily,
         });
       }
     }
 
-    // Sort items top-to-bottom (Y descending), then left-to-right (X ascending)
-    items.sort((a, b) => {
-      const yDiff = b.y - a.y;
-      if (Math.abs(yDiff) > 4) return yDiff;
-      return a.x - b.x;
+    // Determine most frequent (mode) font size for body text
+    const freqMap = new Map<number, number>();
+    for (const sz of fontSizes) {
+      const rounded = Math.round(sz);
+      freqMap.set(rounded, (freqMap.get(rounded) || 0) + 1);
+    }
+    let bodyFontSize = 11;
+    let maxFreq = 0;
+    freqMap.forEach((count, sz) => {
+      if (count > maxFreq || (count === maxFreq && sz < bodyFontSize)) {
+        maxFreq = count;
+        bodyFontSize = sz;
+      }
     });
 
-    // Reconstruct visual lines
-    const visualLines: string[] = [];
-    let currentLineItems: RawItem[] = [];
-    let lastY: number | null = null;
+    // Detect multi-column layout
+    // If text cleanly divides into two distinct columns separated by a central gutter
+    const pageWidth = viewport.width;
+    const midX = pageWidth / 2;
+
+    let leftColCount = 0;
+    let rightColCount = 0;
+    let crossingCount = 0;
 
     for (const item of items) {
-      if (lastY === null || Math.abs(item.y - lastY) <= 4) {
-        currentLineItems.push(item);
+      if (item.x + item.width <= midX + 15) {
+        leftColCount++;
+      } else if (item.x >= midX - 15) {
+        rightColCount++;
+      } else {
+        crossingCount++;
+      }
+    }
+
+    const isTwoColumn =
+      items.length >= 6 &&
+      leftColCount >= items.length * 0.25 &&
+      rightColCount >= items.length * 0.25 &&
+      crossingCount <= items.length * 0.2;
+
+    // Sort items respecting reading order
+    if (isTwoColumn) {
+      items.sort((a, b) => {
+        // Group full-width headers at the top
+        const aHeader = a.y > viewport.height * 0.85 && a.width > pageWidth * 0.5;
+        const bHeader = b.y > viewport.height * 0.85 && b.width > pageWidth * 0.5;
+        if (aHeader !== bHeader) return aHeader ? -1 : 1;
+
+        // Group left column first, then right column
+        const aCol = a.x + a.width <= midX + 15 ? 0 : 1;
+        const bCol = b.x + b.width <= midX + 15 ? 0 : 1;
+        if (aCol !== bCol) return aCol - bCol;
+
+        // Within column: Top-to-bottom (Y descending), then left-to-right (X ascending)
+        const yDiff = b.y - a.y;
+        if (Math.abs(yDiff) > 3.5) return yDiff;
+        return a.x - b.x;
+      });
+    } else {
+      // Standard single-column reading order: Top-to-bottom, then left-to-right
+      items.sort((a, b) => {
+        const yDiff = b.y - a.y;
+        if (Math.abs(yDiff) > 3.5) return yDiff;
+        return a.x - b.x;
+      });
+    }
+
+    // Group items into visual lines
+    const visualLines: VisualLine[] = [];
+    let currentLineRuns: RawPdfItem[] = [];
+    let lastY: number | null = null;
+
+    const flushLine = () => {
+      if (currentLineRuns.length === 0) return;
+      currentLineRuns.sort((a, b) => a.x - b.x);
+
+      const runs: ExtractedRun[] = [];
+      let fullText = '';
+      let prevRunEnd = -1;
+
+      for (const item of currentLineRuns) {
+        if (prevRunEnd !== -1 && item.x - prevRunEnd > 2.5) {
+          if (!fullText.endsWith(' ')) {
+            fullText += ' ';
+            if (runs.length > 0) runs[runs.length - 1].text += ' ';
+          }
+        }
+        runs.push({
+          text: item.text,
+          isBold: item.isBold,
+          isItalic: item.isItalic,
+          fontSizePt: item.fontSizePt,
+          fontFamily: item.fontFamily,
+        });
+        fullText += item.text;
+        prevRunEnd = item.x + item.width;
+      }
+
+      const xMin = currentLineRuns[0].x;
+      const xMax = currentLineRuns[currentLineRuns.length - 1].x + currentLineRuns[currentLineRuns.length - 1].width;
+      const lineHeight = Math.max(...currentLineRuns.map((r) => r.height));
+
+      visualLines.push({
+        y: lastY ?? 0,
+        xMin,
+        xMax,
+        height: lineHeight,
+        runs,
+        text: fullText.trim(),
+      });
+      currentLineRuns = [];
+    };
+
+    for (const item of items) {
+      if (lastY === null || Math.abs(item.y - lastY) <= 3.5) {
+        currentLineRuns.push(item);
         lastY = item.y;
       } else {
-        if (currentLineItems.length > 0) {
-          currentLineItems.sort((a, b) => a.x - b.x);
-          visualLines.push(currentLineItems.map((t) => t.text).join(' '));
-        }
-        currentLineItems = [item];
+        flushLine();
+        currentLineRuns = [item];
         lastY = item.y;
       }
     }
-    if (currentLineItems.length > 0) {
-      currentLineItems.sort((a, b) => a.x - b.x);
-      visualLines.push(currentLineItems.map((t) => t.text).join(' '));
-    }
+    flushLine();
 
     // Identify Title (first prominent line)
-    const title = visualLines.length > 0 ? visualLines[0].trim() : `Page ${i}`;
+    const title = visualLines.length > 0 ? visualLines[0].text : `Page ${i}`;
 
-    // Extract Tables vs Paragraphs
+    // Structure lines into blocks: Headings, Bullet Lists, Tables, Reflowable Paragraphs
+    const blocks: ExtractedBlock[] = [];
     const tables: ExtractedTable[] = [];
     const paragraphs: string[] = [];
     const bulletPoints: string[] = [];
 
     let activeTableRows: ExtractedTableRow[] = [];
-    let currentParagraph = '';
+    let currentParagraphRuns: ExtractedRun[] = [];
+    let currentParagraphText = '';
+    let lastLineY: number | null = null;
+    let lastLineHeight = bodyFontSize;
+
+    const flushParagraph = () => {
+      if (!currentParagraphText.trim()) return;
+      paragraphs.push(currentParagraphText.trim());
+      blocks.push({
+        type: 'paragraph',
+        text: currentParagraphText.trim(),
+        runs: currentParagraphRuns,
+      });
+      currentParagraphRuns = [];
+      currentParagraphText = '';
+    };
+
+    const flushTable = () => {
+      if (activeTableRows.length >= 2) {
+        const table: ExtractedTable = {
+          headers: activeTableRows[0].cells,
+          rows: activeTableRows.slice(1),
+        };
+        tables.push(table);
+        blocks.push({
+          type: 'table',
+          table,
+        });
+        totalTables++;
+      }
+      activeTableRows = [];
+    };
 
     for (const line of visualLines) {
-      const trimmed = line.trim();
+      const trimmed = line.text;
       if (!trimmed) {
-        if (currentParagraph) {
-          paragraphs.push(currentParagraph);
-          currentParagraph = '';
-        }
+        flushParagraph();
         continue;
       }
 
-      // Check if line represents tabular columns (multiple tabs or 2+ consecutive spaces separating words)
+      // Check if line is tabular data (columns separated by 2+ spaces or tabs)
       const potentialCols = trimmed
         .split(/\t|\s{2,}/)
         .map((c) => c.trim())
         .filter(Boolean);
 
-      // A table row typically has 2 or more distinct columns, often containing numbers or aligned codes
       const isTableRow =
         potentialCols.length >= 2 &&
         (potentialCols.some((c) => !isNaN(Number(c.replace(/[$,%]/g, '')))) ||
           potentialCols.length >= 3);
 
       if (isTableRow) {
-        if (currentParagraph) {
-          paragraphs.push(currentParagraph);
-          currentParagraph = '';
-        }
+        flushParagraph();
         activeTableRows.push({ cells: potentialCols });
+        lastLineY = line.y;
+        lastLineHeight = line.height;
+        continue;
       } else {
         if (activeTableRows.length > 0) {
-          if (activeTableRows.length >= 2) {
-            tables.push({
-              headers: activeTableRows[0].cells,
-              rows: activeTableRows.slice(1),
-            });
-            totalTables++;
-          }
-          activeTableRows = [];
-        }
-
-        // Check if line is a bullet item
-        if (/^([•\-*]|\d+[.)])\s+/.test(trimmed)) {
-          if (currentParagraph) {
-            paragraphs.push(currentParagraph);
-            currentParagraph = '';
-          }
-          bulletPoints.push(trimmed.replace(/^([•\-*]|\d+[.)])\s+/, ''));
-        } else {
-          // Reconstruct paragraph: if currentParagraph does not end with sentence punctuation, join with space
-          if (
-            currentParagraph &&
-            !/[.?!:;]$/.test(currentParagraph) &&
-            !/^[A-Z\s]{4,}$/.test(trimmed)
-          ) {
-            currentParagraph += ' ' + trimmed;
-          } else {
-            if (currentParagraph) paragraphs.push(currentParagraph);
-            currentParagraph = trimmed;
-          }
+          flushTable();
         }
       }
+
+      // Check if line is a bullet item
+      const bulletMatch = trimmed.match(/^([•◦▪\-*]|\d+[.)]|[a-zA-Z][.)])\s+(.+)$/);
+      if (bulletMatch) {
+        flushParagraph();
+        const bulletChar = bulletMatch[1];
+        const content = bulletMatch[2];
+        bulletPoints.push(content);
+        blocks.push({
+          type: 'bullet',
+          bulletChar,
+          text: content,
+          runs: line.runs,
+        });
+        lastLineY = line.y;
+        lastLineHeight = line.height;
+        continue;
+      }
+
+      // Check if line is a Heading based on font size and structure
+      const maxFontSizeInLine = Math.max(...line.runs.map((r) => r.fontSizePt || bodyFontSize));
+      const isBoldLine = line.runs.every((r) => r.isBold);
+      const isHeading1 = maxFontSizeInLine >= bodyFontSize * 1.55 && trimmed.length < 90;
+      const isHeading2 = maxFontSizeInLine >= bodyFontSize * 1.25 && trimmed.length < 110;
+      const isHeading3 = isBoldLine && maxFontSizeInLine >= bodyFontSize * 1.1 && trimmed.length < 80;
+
+      if ((isHeading1 || isHeading2 || isHeading3) && !/[.,;]$/.test(trimmed)) {
+        flushParagraph();
+        const level: 1 | 2 | 3 = isHeading1 ? 1 : isHeading2 ? 2 : 3;
+        blocks.push({
+          type: 'heading',
+          headingLevel: level,
+          text: trimmed,
+          runs: line.runs,
+        });
+        lastLineY = line.y;
+        lastLineHeight = line.height;
+        continue;
+      }
+
+      // Regular narrative paragraph reflow:
+      // If line is close to previous line (deltaY <= 1.55 * line height), combine into same paragraph
+      const deltaY = lastLineY !== null ? Math.abs(lastLineY - line.y) : 999;
+      const shouldReflow =
+        currentParagraphText.length > 0 &&
+        deltaY <= Math.max(lastLineHeight, line.height) * 1.55 &&
+        !/[.?!:;]$/.test(currentParagraphText);
+
+      if (shouldReflow) {
+        // Handle end-of-line hyphenation
+        if (currentParagraphText.endsWith('-')) {
+          currentParagraphText = currentParagraphText.slice(0, -1) + trimmed;
+          if (currentParagraphRuns.length > 0) {
+            const lastRun = currentParagraphRuns[currentParagraphRuns.length - 1];
+            if (lastRun.text.endsWith('-')) {
+              lastRun.text = lastRun.text.slice(0, -1);
+            }
+          }
+        } else {
+          currentParagraphText += ' ' + trimmed;
+          if (currentParagraphRuns.length > 0) {
+            currentParagraphRuns[currentParagraphRuns.length - 1].text += ' ';
+          }
+        }
+        currentParagraphRuns.push(...line.runs);
+      } else {
+        flushParagraph();
+        currentParagraphText = trimmed;
+        currentParagraphRuns = [...line.runs];
+      }
+
+      lastLineY = line.y;
+      lastLineHeight = line.height;
     }
 
-    if (currentParagraph) paragraphs.push(currentParagraph);
-    if (activeTableRows.length >= 2) {
-      tables.push({
-        headers: activeTableRows[0].cells,
-        rows: activeTableRows.slice(1),
-      });
-      totalTables++;
-    }
+    flushParagraph();
+    flushTable();
 
-    const rawText = visualLines.join('\n');
+    const rawText = visualLines.map((l) => l.text).join('\n');
     totalWords += rawText.split(/\s+/).filter(Boolean).length;
+
+    // Convert page dimensions to Word twips (1 pt = 20 twips)
+    const widthTwips = Math.round(viewport.width * 20);
+    const heightTwips = Math.round(viewport.height * 20);
 
     pages.push({
       pageNumber: i,
@@ -248,7 +477,21 @@ export async function extractAndAnalyzePdf(
       bulletPoints,
       tables,
       rawText,
+      blocks,
+      widthTwips,
+      heightTwips,
+      marginsTwips: { top: 1440, right: 1440, bottom: 1440, left: 1440 },
     });
+      } finally {
+        page.cleanup?.();
+      }
+    }
+  } finally {
+    try {
+      await pdf.destroy();
+    } catch {
+      // ignore
+    }
   }
 
   const hasSelectableText = totalWords > 20;
@@ -276,8 +519,8 @@ export async function extractAndAnalyzePdf(
         status: 'optimal',
         confidence: hasSelectableText ? 95 : 20,
         message: hasSelectableText
-          ? 'Recommended: Perfect for articles, contracts, reports, and formatted text documents.'
-          : 'Scanned document with minimal text. Output may be sparse without OCR.',
+          ? 'Recommended: High-fidelity layout with reflowable paragraphs, genuine Word tables, and heading typography.'
+          : 'Scanned document with minimal selectable text. Running Searchable OCR first is strongly advised.',
       },
       xlsx: {
         status: hasTabularData ? 'optimal' : 'incompatible',
@@ -304,200 +547,11 @@ export async function extractAndAnalyzePdf(
 }
 
 /**
- * 1. HIGH-FIDELITY WORD CONVERTER (.docx)
- * Converts reconstructed paragraphs, headings, bullet lists, and genuine XML tables.
+ * 1. ADOBE-POWERED WORD CONVERTER (.docx)
+ * The obsolete local OOXML builder has been removed in favor of Adobe PDF Services API.
+ * Re-exports convertPdfToDocx from remoteConverter for enterprise document fidelity.
  */
-export async function convertPdfToDocx(
-  file: File,
-  options: {
-    preservePageBreaks?: boolean;
-    onProgress?: (current: number, total: number) => void;
-  } = {}
-): Promise<Blob> {
-  const { pages } = await extractAndAnalyzePdf(file, options.onProgress);
-  if (!pages || pages.length === 0) {
-    throw new Error('PDF conversion failed: document contains no extractable pages.');
-  }
-
-  const zip = new JSZip();
-
-  // 1. [Content_Types].xml
-  zip.file(
-    '[Content_Types].xml',
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
-  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
-  <Default Extension="xml" ContentType="application/xml"/>
-  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
-  <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
-</Types>`
-  );
-
-  // 2. _rels/.rels
-  zip.file(
-    '_rels/.rels',
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
-</Relationships>`
-  );
-
-  // 3. word/_rels/document.xml.rels
-  zip.file(
-    'word/_rels/document.xml.rels',
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
-</Relationships>`
-  );
-
-  // 4. word/styles.xml
-  zip.file(
-    'word/styles.xml',
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-  <w:docDefaults>
-    <w:rPrDefault>
-      <w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/>
-      <w:sz w:val="22"/>
-      <w:color w:val="1E293B"/>
-    </w:rPrDefault>
-  </w:docDefaults>
-</w:styles>`
-  );
-
-  // 5. word/document.xml
-  let bodyXml = '';
-
-  pages.forEach((page, pageIdx) => {
-    if (pageIdx > 0 && (options.preservePageBreaks ?? true)) {
-      bodyXml += `<w:p><w:r><w:br w:type="page"/></w:r></w:p>`;
-    }
-
-    // Page title / heading
-    if (page.title && page.title.length < 80) {
-      bodyXml += `
-      <w:p>
-        <w:pPr>
-          <w:spacing w:before="240" w:after="140"/>
-        </w:pPr>
-        <w:r>
-          <w:rPr>
-            <w:b/>
-            <w:sz w:val="28"/>
-            <w:color w:val="0F172A"/>
-          </w:rPr>
-          <w:t xml:space="preserve">${escapeXml(page.title)}</w:t>
-        </w:r>
-      </w:p>`;
-    }
-
-    // Paragraphs
-    for (const para of page.paragraphs) {
-      if (!para.trim() || para === page.title) continue;
-      bodyXml += `
-      <w:p>
-        <w:pPr>
-          <w:spacing w:after="160" w:line="280" w:lineRule="auto"/>
-        </w:pPr>
-        <w:r>
-          <w:t xml:space="preserve">${escapeXml(para)}</w:t>
-        </w:r>
-      </w:p>`;
-    }
-
-    // Bullet points
-    for (const bullet of page.bulletPoints) {
-      bodyXml += `
-      <w:p>
-        <w:pPr>
-          <w:ind w:left="400"/>
-          <w:spacing w:after="80"/>
-        </w:pPr>
-        <w:r>
-          <w:rPr><w:b/><w:color w:val="3B82F6"/></w:rPr>
-          <w:t xml:space="preserve">•  </w:t>
-        </w:r>
-        <w:r>
-          <w:t xml:space="preserve">${escapeXml(bullet)}</w:t>
-        </w:r>
-      </w:p>`;
-    }
-
-    // True Word XML Tables
-    for (const table of page.tables) {
-      let tableRowsXml = '';
-
-      if (table.headers && table.headers.length > 0) {
-        let headerCellsXml = '';
-        for (const h of table.headers) {
-          headerCellsXml += `
-          <w:tc>
-            <w:tcPr>
-              <w:shd w:val="clear" w:color="auto" w:fill="F1F5F9"/>
-            </w:tcPr>
-            <w:p>
-              <w:r>
-                <w:rPr><w:b/><w:color w:val="0F172A"/></w:rPr>
-                <w:t xml:space="preserve">${escapeXml(h)}</w:t>
-              </w:r>
-            </w:p>
-          </w:tc>`;
-        }
-        tableRowsXml += `<w:tr><w:trPr><w:tblHeader/></w:trPr>${headerCellsXml}</w:tr>`;
-      }
-
-      for (const row of table.rows) {
-        let cellsXml = '';
-        for (const c of row.cells) {
-          cellsXml += `
-          <w:tc>
-            <w:p>
-              <w:r><w:t xml:space="preserve">${escapeXml(c)}</w:t></w:r>
-            </w:p>
-          </w:tc>`;
-        }
-        tableRowsXml += `<w:tr>${cellsXml}</w:tr>`;
-      }
-
-      bodyXml += `
-      <w:tbl>
-        <w:tblPr>
-          <w:tblW w:w="5000" w:type="pct"/>
-          <w:tblBorders>
-            <w:top w:val="single" w:sz="4" w:space="0" w:color="CBD5E1"/>
-            <w:bottom w:val="single" w:sz="4" w:space="0" w:color="CBD5E1"/>
-            <w:left w:val="none"/>
-            <w:right w:val="none"/>
-            <w:insideH w:val="single" w:sz="4" w:space="0" w:color="E2E8F0"/>
-            <w:insideV w:val="none"/>
-          </w:tblBorders>
-        </w:tblPr>
-        ${tableRowsXml}
-      </w:tbl>
-      <w:p/>`;
-    }
-  });
-
-  const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
-            xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-  <w:body>
-    ${bodyXml}
-    <w:sectPr>
-      <w:pgSz w:w="11906" w:h="16838"/>
-      <w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720"/>
-    </w:sectPr>
-  </w:body>
-</w:document>`;
-
-  zip.file('word/document.xml', documentXml);
-
-  return await zip.generateAsync({
-    type: 'blob',
-    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  });
-}
+export { convertPdfToDocx } from './remoteConverter';
 
 /**
  * 2. STRUCTURED EXCEL CONVERTER (.xlsx)
@@ -512,7 +566,6 @@ export async function convertPdfToXlsx(
 ): Promise<Blob> {
   const { pages, analysis } = await extractAndAnalyzePdf(file, options.onProgress);
 
-  // Check custom exception: if no tabular data exists and user didn't force, throw friendly exception
   if (!analysis.hasTabularData && !options.forceContinuousText) {
     throw new Error(
       'NO_TABULAR_DATA: This PDF consists of continuous narrative text with no detected tables or spreadsheets. Converting text documents into Excel generates unreadable rows in Column A. We strongly recommend converting to Word (.docx) instead.'
@@ -521,7 +574,6 @@ export async function convertPdfToXlsx(
 
   const zip = new JSZip();
 
-  // OpenXML boilerplate
   zip.file(
     '[Content_Types].xml',
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -611,12 +663,10 @@ export async function convertPdfToXlsx(
     colWidths.set(colIdx, Math.max(current, Math.min(textLength + 3, 50)));
   };
 
-  // If tables were detected, prioritize extracting those structured tables
   if (analysis.hasTabularData) {
     for (const page of pages) {
       if (page.tables.length === 0) continue;
 
-      // Section separator
       sheetRowsXml += `<row r="${rowIndex}">
         <c r="A${rowIndex}" t="inlineStr" s="1"><is><t>[ Page ${page.pageNumber}: ${escapeXml(page.title)} ]</t></is></c>
       </row>`;
@@ -652,11 +702,10 @@ export async function convertPdfToXlsx(
           sheetRowsXml += `</row>`;
           rowIndex++;
         }
-        rowIndex++; // Empty space between tables
+        rowIndex++;
       }
     }
   } else {
-    // Fallback if forced: output raw lines
     for (const page of pages) {
       sheetRowsXml += `<row r="${rowIndex}">
         <c r="A${rowIndex}" t="inlineStr" s="1"><is><t>[ Page ${page.pageNumber} ]</t></is></c>
@@ -673,7 +722,6 @@ export async function convertPdfToXlsx(
     }
   }
 
-  // Generate column width definitions
   let colsXml = '<cols>';
   colWidths.forEach((width, colIdx) => {
     colsXml += `<col min="${colIdx + 1}" max="${colIdx + 1}" width="${width}" customWidth="1"/>`;
@@ -770,12 +818,10 @@ export async function convertPdfToPptx(
 </p:presentation>`
   );
 
-  // Generate individual slides
   pages.forEach((page, idx) => {
     const slideNumber = idx + 1;
     const slideTitle = page.title || `Overview - Slide ${slideNumber}`;
 
-    // Collect 3-6 key bullet items for the slide
     const slideBullets = [
       ...page.bulletPoints,
       ...page.paragraphs.slice(0, 4),
@@ -823,7 +869,6 @@ export async function convertPdfToPptx(
       </p:nvGrpSpPr>
       <p:grpSpPr/>
 
-      <!-- Title Box -->
       <p:sp>
         <p:nvSpPr>
           <p:cNvPr id="2" name="Title Box"/>
@@ -850,7 +895,6 @@ export async function convertPdfToPptx(
         </p:txBody>
       </p:sp>
 
-      <!-- Content Box -->
       <p:sp>
         <p:nvSpPr>
           <p:cNvPr id="3" name="Body Box"/>

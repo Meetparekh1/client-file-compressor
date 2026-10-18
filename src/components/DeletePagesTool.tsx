@@ -6,12 +6,15 @@ import {
   CheckCircle2, 
   Loader2, 
   ShieldCheck, 
-  FileText 
+  FileText,
+  Eye,
 } from 'lucide-react';
 import { deletePdfPages } from '../lib/advancedPdfEngines';
 import { formatBytes, sanitizeFilename } from '../lib/utils';
+import { validateFileSize } from '../lib/securityLimits';
 import { PDFDocument } from 'pdf-lib';
 import { saveAs } from 'file-saver';
+import { DocumentViewerWorkspace } from './DocumentViewerWorkspace';
 
 interface DeletePagesToolProps {
   onBack: () => void;
@@ -24,10 +27,18 @@ export const DeletePagesTool: React.FC<DeletePagesToolProps> = ({ onBack, onToas
   const [selectedPages, setSelectedPages] = useState<Set<number>>(new Set());
   const [isProcessing, setIsProcessing] = useState(false);
   const [resultBlob, setResultBlob] = useState<Blob | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   const processSelectedFile = async (selected: File) => {
     if (selected.type !== 'application/pdf' && !selected.name.toLowerCase().endsWith('.pdf')) {
       onToast('Please upload a valid PDF document.', 'error');
+      return;
+    }
+    try {
+      validateFileSize(selected);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'File size exceeds limit.';
+      onToast(msg, 'error');
       return;
     }
     setFile(selected);
@@ -51,6 +62,7 @@ export const DeletePagesTool: React.FC<DeletePagesToolProps> = ({ onBack, onToas
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     const dropped = e.dataTransfer.files?.[0];
     if (dropped) processSelectedFile(dropped);
   };
@@ -222,11 +234,44 @@ export const DeletePagesTool: React.FC<DeletePagesToolProps> = ({ onBack, onToas
                   <Download className="w-4 h-4" />
                   <span>Download Cleaned PDF</span>
                 </button>
+
+                <button
+                  onClick={() => setIsPreviewOpen(true)}
+                  className="w-full py-2.5 px-3 rounded-xl border border-stone-200 dark:border-[#2a3243] text-stone-700 dark:text-zinc-300 hover:bg-stone-50 dark:hover:bg-[#1a202c] text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>Compare with Original</span>
+                </button>
               </div>
+            )}
+
+            {file && !resultBlob && (
+              <button
+                type="button"
+                onClick={() => setIsPreviewOpen(true)}
+                className="w-full py-2.5 px-3 rounded-xl border border-stone-200 dark:border-[#2a3243] text-stone-700 dark:text-zinc-300 hover:bg-stone-50 dark:hover:bg-[#1a202c] text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Eye className="w-3.5 h-3.5 text-rose-500" />
+                <span>Preview Document Workspace</span>
+              </button>
             )}
           </div>
         </div>
       </div>
+
+      {/* Fullscreen Document Viewer Modal */}
+      {isPreviewOpen && file && (
+        <DocumentViewerWorkspace
+          file={resultBlob || file}
+          fileName={file.name}
+          compareFile={resultBlob ? file : null}
+          compareFileName="Original PDF"
+          mode="modal"
+          onClose={() => setIsPreviewOpen(false)}
+          badgeLabel={resultBlob ? 'Cleaned' : `${selectedPages.size} Marked to Delete`}
+          badgeColorClass={resultBlob ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300'}
+        />
+      )}
     </div>
   );
 };

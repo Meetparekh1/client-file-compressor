@@ -5,8 +5,6 @@ import {
   Scissors, 
   PenTool, 
   FileSpreadsheet, 
-  ShieldCheck, 
-  Sparkles,
   ArrowRight,
   Camera,
   RotateCw,
@@ -14,21 +12,48 @@ import {
   Binary,
   FileImage,
   Lock,
+  LockOpen,
   FileText,
-  Brain
+  Brain,
+  LayoutGrid,
+  Eye,
+  Edit3,
+  Scan,
+  Layout,
+  Heart
 } from 'lucide-react';
 import type { ToolDefinition } from '../lib/toolsRegistry';
+import { isFavorite, toggleFavorite } from '../lib/favoritesStore';
 
 interface ToolCardProps {
   tool: ToolDefinition;
   onSelect: (toolId: string) => void;
+  isFavorited?: boolean;
+  onToggleFavorite?: (toolId: string) => void;
 }
 
-export const ToolCard: React.FC<ToolCardProps> = ({ tool, onSelect }) => {
+export const ToolCard: React.FC<ToolCardProps> = ({ 
+  tool, 
+  onSelect, 
+  isFavorited: controlledFavorited,
+  onToggleFavorite 
+}) => {
   const isComingSoon = tool.status === 'coming_soon';
+  const isFav = controlledFavorited !== undefined ? controlledFavorited : isFavorite(tool.id);
+
+  const handleHeartClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (onToggleFavorite) {
+      onToggleFavorite(tool.id);
+    } else {
+      toggleFavorite(tool.id);
+    }
+  };
 
   const renderIcon = () => {
     switch (tool.iconName) {
+      case 'word':
+        return <span className="font-black text-xl leading-none text-white font-sans select-none">W</span>;
       case 'compress':
         return <FileArchive className="w-6 h-6" />;
       case 'merge':
@@ -37,7 +62,6 @@ export const ToolCard: React.FC<ToolCardProps> = ({ tool, onSelect }) => {
         return <Scissors className="w-6 h-6" />;
       case 'sign':
         return <PenTool className="w-6 h-6" />;
-      case 'word':
       case 'office':
         return <FileSpreadsheet className="w-6 h-6" />;
       case 'ai':
@@ -54,8 +78,21 @@ export const ToolCard: React.FC<ToolCardProps> = ({ tool, onSelect }) => {
         return <FileImage className="w-6 h-6" />;
       case 'flatten':
         return <Lock className="w-6 h-6" />;
+      case 'organize':
+        return <LayoutGrid className="w-6 h-6" />;
+      case 'preview':
+        return <Eye className="w-6 h-6" />;
+      case 'edit':
+        return <Edit3 className="w-6 h-6" />;
       case 'text':
         return <FileText className="w-6 h-6" />;
+      case 'scan':
+        return <Scan className="w-6 h-6" />;
+      case 'unlock':
+      case 'lock':
+        return <LockOpen className="w-6 h-6" />;
+      case 'layout':
+        return <Layout className="w-6 h-6" />;
       default:
         return <FileArchive className="w-6 h-6" />;
     }
@@ -77,88 +114,66 @@ export const ToolCard: React.FC<ToolCardProps> = ({ tool, onSelect }) => {
           onSelect(tool.id);
         }
       }}
-      className={`group relative rounded-3xl p-4 sm:p-6 transition-all duration-300 border flex flex-col justify-between focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#0b0e14]
-        bg-white border-stone-200/80 shadow-sm hover:shadow-md hover:border-stone-300 glass-card
-        dark:bg-[#12161f] dark:border-[#202735] dark:hover:border-[#323d52] dark:shadow-none
-        ${isComingSoon ? 'opacity-80 cursor-default' : 'cursor-pointer hover:-translate-y-1 hover:shadow-lg'}`}
+      className={`group relative rounded-2xl p-3.5 sm:p-4 transition-all duration-200 border flex flex-col justify-between focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#0b0e14]
+        bg-white border-stone-200/90 shadow-2xs hover:shadow-md hover:-translate-y-[2px] hover:border-blue-200/80
+        dark:bg-[#131823] dark:border-[#202736] dark:hover:border-blue-500/40
+        ${isComingSoon ? 'opacity-80 cursor-default' : 'cursor-pointer'}`}
     >
       <div>
-        {/* Top Header: Icon + Badge + On-Device Shield */}
-        <div className="flex items-start justify-between gap-3 mb-4">
+        {/* Top Row: Icon Container + Favorite Heart Button */}
+        <div className="flex items-start justify-between">
           <div
-            className={`w-12 h-12 rounded-2xl flex items-center justify-center border transition-transform duration-300 group-hover:scale-105 shadow-sm
+            className={`w-10 h-10 sm:w-11 sm:h-11 rounded-xl flex items-center justify-center shrink-0 shadow-xs transition-transform duration-200 group-hover:scale-105
               ${tool.iconBgColor} ${tool.iconDarkBgColor}`}
           >
             {renderIcon()}
           </div>
 
-          <div className="flex items-center gap-1.5 flex-wrap justify-end">
-            {/* Explicit Processing Destination Badge */}
-            <span
-              title={tool.destinationLabel}
-              className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
-                tool.destination === 'hybrid'
-                  ? 'bg-blue-50 border-blue-200/80 text-blue-700 dark:bg-blue-950/60 dark:border-blue-800/60 dark:text-blue-300'
-                  : tool.destination === 'local_cdn_model'
-                  ? 'bg-purple-50 border-purple-200/80 text-purple-700 dark:bg-purple-950/60 dark:border-purple-800/60 dark:text-purple-300'
-                  : 'bg-emerald-50 border-emerald-200/80 text-emerald-700 dark:bg-emerald-950/60 dark:border-emerald-800/60 dark:text-emerald-300'
-              }`}
-            >
-              <ShieldCheck className="w-3.5 h-3.5" />
-              <span>
-                {tool.destination === 'hybrid'
-                  ? 'Hybrid Local/Server'
-                  : tool.destination === 'local_cdn_model'
-                  ? 'Local AI'
-                  : 'On-Device'}
-              </span>
-            </span>
-
-            {/* Status / Feature badge */}
-            {tool.badgeLabel && (
-              <span
-                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border
-                  ${
-                    tool.badgeType === 'coming_soon'
-                      ? 'bg-stone-100 border-stone-300/80 text-stone-600 dark:bg-stone-800/80 dark:border-stone-700 dark:text-stone-300'
-                      : tool.badgeType === 'new'
-                      ? 'bg-indigo-50 border-indigo-200/80 text-indigo-700 dark:bg-indigo-950/60 dark:border-indigo-800/60 dark:text-indigo-300'
-                      : 'bg-emerald-50 border-emerald-200/80 text-emerald-700 dark:bg-emerald-950/60 dark:border-emerald-800/60 dark:text-emerald-300'
-                  }`}
-              >
-                {tool.badgeType === 'new' && <Sparkles className="w-3 h-3 text-indigo-500" />}
-                {tool.badgeLabel}
-              </span>
-            )}
-          </div>
+          <button
+            type="button"
+            onClick={handleHeartClick}
+            className="p-1 -mr-1 -mt-1 rounded-full text-stone-300 dark:text-zinc-600 hover:text-rose-500 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-all cursor-pointer"
+            title={isFav ? "Remove from favorites" : "Add to favorites"}
+            aria-label={isFav ? "Remove from favorites" : "Add to favorites"}
+          >
+            <Heart 
+              className={`w-3.5 h-3.5 sm:w-4 sm:h-4 transition-transform duration-150 ${
+                isFav 
+                  ? "text-rose-500 fill-rose-500 scale-110" 
+                  : "text-stone-300 dark:text-zinc-600 group-hover:text-stone-400"
+              }`} 
+            />
+          </button>
         </div>
 
-        {/* Title & Headline */}
-        <div>
-          <span className="text-xs font-semibold uppercase tracking-wider text-stone-400 dark:text-stone-500">
+        {/* Tool Name & Description */}
+        <div className="mt-2.5 sm:mt-3">
+          <h3 className="text-sm sm:text-base font-bold text-stone-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors tracking-tight">
             {tool.name}
-          </span>
-          <h3 className="text-lg font-bold text-stone-900 dark:text-white mt-0.5 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
-            {tool.title}
           </h3>
-          <p className="text-xs sm:text-sm text-stone-500 dark:text-zinc-400 mt-2 leading-relaxed">
+          <p className="text-xs text-stone-500 dark:text-zinc-400 mt-0.5 leading-snug line-clamp-2">
             {tool.description}
           </p>
         </div>
       </div>
 
-      {/* Card Footer: Action indication */}
-      <div className="pt-5 mt-4 border-t border-stone-100 dark:border-white/5 flex items-center justify-between">
+      {/* Bottom Row: Arrow Button */}
+      <div className="flex items-center justify-between mt-2.5 sm:mt-3 pt-0.5">
         {isComingSoon ? (
-          <span className="text-xs font-semibold text-stone-400 dark:text-stone-500">
-            Server Tool • Coming Soon
+          <span className="text-[11px] font-semibold text-stone-400 dark:text-stone-500">
+            Coming Soon
           </span>
         ) : (
-          <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400 inline-flex items-center gap-1.5 group-hover:gap-2 transition-all">
-            <span>Open Tool</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </span>
+          <div />
         )}
+        <div
+          className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center transition-all duration-200
+            ${isComingSoon 
+              ? 'opacity-50 bg-stone-100 text-stone-400 dark:bg-[#1a2333] dark:text-zinc-500' 
+              : 'bg-[#f0f5ff] text-[#2563eb] dark:bg-[#1a2538] dark:text-[#38bdf8] group-hover:bg-[#2563eb] group-hover:text-white dark:group-hover:bg-[#2563eb] dark:group-hover:text-white shadow-2xs'}`}
+        >
+          <ArrowRight className="w-3.5 h-3.5 transition-transform duration-150 group-hover:translate-x-0.5" />
+        </div>
       </div>
     </div>
   );

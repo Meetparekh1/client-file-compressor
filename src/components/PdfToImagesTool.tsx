@@ -6,13 +6,16 @@ import {
   CheckCircle2, 
   Loader2, 
   ShieldCheck, 
-  FileText 
+  FileText,
+  Eye,
 } from 'lucide-react';
 import { pdfToImagesZip } from '../lib/advancedPdfEngines';
 import { formatBytes, sanitizeFilename } from '../lib/utils';
 import { parseFriendlyError } from '../lib/errorParser';
+import { validateFileSize } from '../lib/securityLimits';
 import { PDFDocument } from 'pdf-lib';
 import { saveAs } from 'file-saver';
+import { DocumentViewerWorkspace } from './DocumentViewerWorkspace';
 
 interface PdfToImagesToolProps {
   onBack: () => void;
@@ -26,10 +29,18 @@ export const PdfToImagesTool: React.FC<PdfToImagesToolProps> = ({ onBack, onToas
   const [isProcessing, setIsProcessing] = useState(false);
   const [progressMsg, setProgressMsg] = useState('');
   const [resultZipBlob, setResultZipBlob] = useState<Blob | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   const processSelectedFile = async (selected: File) => {
     if (selected.type !== 'application/pdf' && !selected.name.toLowerCase().endsWith('.pdf')) {
       onToast('Please upload a valid PDF document.', 'error');
+      return;
+    }
+    try {
+      validateFileSize(selected);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'File size exceeds limit.';
+      onToast(msg, 'error');
       return;
     }
     setFile(selected);
@@ -52,6 +63,7 @@ export const PdfToImagesTool: React.FC<PdfToImagesToolProps> = ({ onBack, onToas
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     const dropped = e.dataTransfer.files?.[0];
     if (dropped) processSelectedFile(dropped);
   };
@@ -220,9 +232,32 @@ export const PdfToImagesTool: React.FC<PdfToImagesToolProps> = ({ onBack, onToas
                 </button>
               </div>
             )}
+
+            {file && (
+              <button
+                type="button"
+                onClick={() => setIsPreviewOpen(true)}
+                className="w-full py-2.5 px-3 rounded-xl border border-stone-200 dark:border-[#2a3243] text-stone-700 dark:text-zinc-300 hover:bg-stone-50 dark:hover:bg-[#1a202c] text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Eye className="w-3.5 h-3.5 text-sky-500" />
+                <span>Preview Document Workspace</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
+
+      {/* Document Viewer Workspace Modal */}
+      {isPreviewOpen && file && (
+        <DocumentViewerWorkspace
+          file={file}
+          fileName={file.name}
+          mode="modal"
+          onClose={() => setIsPreviewOpen(false)}
+          badgeLabel={`${totalPages} Pages to Images`}
+          badgeColorClass="bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300"
+        />
+      )}
     </div>
   );
 };

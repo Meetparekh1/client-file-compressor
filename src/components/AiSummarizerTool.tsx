@@ -33,28 +33,16 @@ import {
   Info,
 } from 'lucide-react';
 import {
-  isAiModelCached,
-  setAiModelCached,
   summarizePdfDocument,
   type SummaryResult,
   type SummaryMode,
   type DocumentType,
 } from '../lib/aiSummarizer';
 import { textToPdf } from '../lib/advancedPdfEngines';
-import * as pdfjsLib from 'pdfjs-dist';
+import { pdfjsLib } from '../lib/pdfjsClient';
 import { formatBytes, sanitizeFilename } from '../lib/utils';
 import { parseFriendlyError } from '../lib/errorParser';
 import type { ToastMessage } from './Toast';
-
-// Ensure worker is set for page-count preview
-if (typeof window !== 'undefined' && 'Worker' in window) {
-  try {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-      'pdfjs-dist/build/pdf.worker.min.mjs',
-      import.meta.url
-    ).toString();
-  } catch { /* fallback */ }
-}
 
 interface AiSummarizerToolProps {
   onBack: () => void;
@@ -183,29 +171,46 @@ const FormulaBlock: React.FC<{ raw: string; context?: string; pageRef?: number }
 export const AiSummarizerTool: React.FC<AiSummarizerToolProps> = ({ onBack, onToast }) => {
   const [file, setFile] = useState<File | null>(null);
   const [filePageCount, setFilePageCount] = useState<number | null>(null);
-  const [hasConsented, setHasConsented] = useState(() => isAiModelCached());
-  const [showConsentModal, setShowConsentModal] = useState(false);
   const [summaryMode, setSummaryMode] = useState<SummaryMode>('executive');
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [summarizeProgress, setSummarizeProgress] = useState({ stage: '', percent: 0 });
   const [summaryResult, setSummaryResult] = useState<SummaryResult | null>(null);
   const [copied, setCopied] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const abortRef = useRef<boolean>(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Quick page count preview — load pdfjs after file chosen
+  // Quick page count preview — load pdfjs after file chosen with guaranteed destroy
   useEffect(() => {
     if (!file) return;
     let cancelled = false;
+    let pdfDoc: any = null;
     (async () => {
       try {
         const ab = await file.arrayBuffer();
-        const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
-        if (!cancelled) setFilePageCount(pdf.numPages);
+        if (cancelled) return;
+        pdfDoc = await pdfjsLib.getDocument({ data: ab }).promise;
+        if (!cancelled) setFilePageCount(pdfDoc.numPages);
       } catch { /* ignore */ }
+      finally {
+        if (pdfDoc) {
+          try { await pdfDoc.destroy(); } catch {}
+        }
+      }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (pdfDoc) {
+        try { pdfDoc.destroy(); } catch {}
+      }
+    };
   }, [file]);
+
+  // Cleanup in-flight operations on unmount
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0];
@@ -221,6 +226,7 @@ export const AiSummarizerTool: React.FC<AiSummarizerToolProps> = ({ onBack, onTo
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     const dropped = e.dataTransfer.files?.[0];
     if (!dropped) return;
     if (dropped.type !== 'application/pdf' && !dropped.name.toLowerCase().endsWith('.pdf')) {
@@ -234,47 +240,45 @@ export const AiSummarizerTool: React.FC<AiSummarizerToolProps> = ({ onBack, onTo
 
   const handleStartSummarize = () => {
     if (!file) return;
-    if (!hasConsented) {
-      setShowConsentModal(true);
-    } else {
-      executeSummarize(summaryMode);
-    }
-  };
-
-  const handleConsent = () => {
-    setShowConsentModal(false);
-    setAiModelCached(true);
-    setHasConsented(true);
     executeSummarize(summaryMode);
   };
 
   const executeSummarize = async (mode: SummaryMode) => {
     if (!file) return;
-    abortRef.current = false;
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     setIsSummarizing(true);
     setSummarizeProgress({ stage: 'Opening PDF…', percent: 10 });
 
     try {
-      const result = await summarizePdfDocument(file, mode, (stage, percent) => {
-        if (abortRef.current) return;
-        setSummarizeProgress({ stage, percent });
-      });
-      if (!abortRef.current) {
+      const result = await summarizePdfDocument(
+        file,
+        mode,
+        (stage, percent) => {
+          if (controller.signal.aborted) return;
+          setSummarizeProgress({ stage, percent });
+        },
+        { signal: controller.signal }
+      );
+      if (!controller.signal.aborted) {
         setSummaryResult(result);
         onToast('Document summarized successfully!', 'success');
       }
     } catch (err: unknown) {
-      if (!abortRef.current) {
+      if (!controller.signal.aborted) {
         const friendly = parseFriendlyError(err);
         onToast(friendly.title + ': ' + friendly.message, 'error');
       }
     } finally {
-      setIsSummarizing(false);
+      if (abortControllerRef.current === controller) {
+        setIsSummarizing(false);
+      }
     }
   };
 
   const handleCancel = () => {
-    abortRef.current = true;
+    abortControllerRef.current?.abort();
     setIsSummarizing(false);
     setSummarizeProgress({ stage: '', percent: 0 });
     onToast('Summarization cancelled.', 'info');
@@ -806,54 +810,6 @@ export const AiSummarizerTool: React.FC<AiSummarizerToolProps> = ({ onBack, onTo
               )}
             </div>
           )}
-        </div>
-      )}
-
-      {/* Privacy Consent Modal (replaces the fake "download AI" modal) */}
-      {showConsentModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-[#141824] rounded-3xl border border-stone-200 dark:border-[#252c3c] p-6 max-w-md w-full shadow-2xl space-y-4">
-            <div className="w-12 h-12 rounded-2xl bg-violet-500/10 text-violet-600 dark:text-violet-400 flex items-center justify-center">
-              <Brain className="w-6 h-6" />
-            </div>
-
-            <div>
-              <h3 className="text-lg font-bold text-stone-900 dark:text-white">
-                Summarize with On-Device NLP?
-              </h3>
-              <p className="text-xs sm:text-sm text-stone-600 dark:text-zinc-400 mt-2 leading-relaxed">
-                DocuKit processes your document <strong>entirely inside your browser</strong> using extractive NLP algorithms. Your file is never uploaded to any server.
-              </p>
-            </div>
-
-            <div className="p-3.5 rounded-2xl bg-violet-500/8 border border-violet-500/15 text-xs text-violet-800 dark:text-violet-300 space-y-1.5">
-              <p className="font-semibold">What happens:</p>
-              <ul className="space-y-1 ml-1">
-                <li>• Your PDF is read directly from your device's memory.</li>
-                <li>• Text is extracted and analysed locally using pdfjs and NLP scoring.</li>
-                <li>• No internet connection is required. No data leaves your browser.</li>
-                <li>• Processing time depends on document length (seconds to under a minute).</li>
-              </ul>
-            </div>
-
-            <div className="pt-2 flex flex-col gap-2.5">
-              <button
-                onClick={handleConsent}
-                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold
-                  bg-violet-600 hover:bg-violet-500 active:scale-95 text-white shadow-md shadow-violet-500/20 transition-all cursor-pointer"
-              >
-                <Sparkles className="w-4 h-4" />
-                <span>Understood — Summarize My Document</span>
-              </button>
-
-              <button
-                onClick={() => setShowConsentModal(false)}
-                className="w-full text-center text-[11px] text-stone-400 hover:text-stone-600 dark:hover:text-zinc-300 transition py-1"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
         </div>
       )}
     </div>

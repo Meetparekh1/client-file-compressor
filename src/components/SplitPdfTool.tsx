@@ -9,25 +9,17 @@ import {
   Loader2, 
   ShieldCheck, 
   Layers, 
-  ListFilter 
+  ListFilter,
+  Eye
 } from 'lucide-react';
 import { PDFDocument } from 'pdf-lib';
-import * as pdfjsLib from 'pdfjs-dist';
+import { pdfjsLib } from '../lib/pdfjsClient';
 import { extractPdfPages, parsePageRangeString, splitPdfIntoSinglePages } from '../lib/pdfOperations';
 import { formatBytes, sanitizeFilename } from '../lib/utils';
+import { validateFileSize } from '../lib/securityLimits';
 import { saveAs } from 'file-saver';
 import JSZip from 'jszip';
-
-if (typeof window !== 'undefined' && 'Worker' in window) {
-  try {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-      'pdfjs-dist/build/pdf.worker.min.mjs',
-      import.meta.url
-    ).toString();
-  } catch {
-    // fallback gracefully
-  }
-}
+import { DocumentViewerWorkspace } from './DocumentViewerWorkspace';
 
 interface SplitPdfToolProps {
   onBack: () => void;
@@ -48,10 +40,19 @@ export const SplitPdfTool: React.FC<SplitPdfToolProps> = ({ onBack, onToast }) =
   const [extractedBlob, setExtractedBlob] = useState<Blob | null>(null);
   const [allPagesBlobs, setAllPagesBlobs] = useState<{ pageNumber: number; blob: Blob }[] | null>(null);
   const [isComplete, setIsComplete] = useState(false);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   const processSelectedFile = async (selected: File) => {
     if (selected.type !== 'application/pdf' && !selected.name.toLowerCase().endsWith('.pdf')) {
       onToast('Please select a valid PDF file.', 'error');
+      return;
+    }
+
+    try {
+      validateFileSize(selected);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'File size exceeds limit.';
+      onToast(msg, 'error');
       return;
     }
 
@@ -88,6 +89,7 @@ export const SplitPdfTool: React.FC<SplitPdfToolProps> = ({ onBack, onToast }) =
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     const dropped = e.dataTransfer.files?.[0];
     if (dropped) processSelectedFile(dropped);
   };
@@ -319,7 +321,7 @@ export const SplitPdfTool: React.FC<SplitPdfToolProps> = ({ onBack, onToast }) =
             {!isComplete ? (
               <button
                 onClick={handleProcess}
-                disabled={!file || isProcessing}
+                disabled={!file || isProcessing || (mode === 'range' && !rangeInput.trim())}
                 className="w-full py-3 px-4 rounded-2xl font-semibold text-sm shadow-md transition-all flex items-center justify-center gap-2
                   bg-purple-600 hover:bg-purple-700 text-white disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               >
@@ -350,14 +352,25 @@ export const SplitPdfTool: React.FC<SplitPdfToolProps> = ({ onBack, onToast }) =
                 </div>
 
                 {mode === 'range' && extractedBlob && (
-                  <button
-                    onClick={downloadExtractedPdf}
-                    className="w-full py-3 px-4 rounded-2xl font-semibold text-sm shadow-md transition-all flex items-center justify-center gap-2
-                      bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer"
-                  >
-                    <Download className="w-4 h-4" />
-                    <span>Download Extracted PDF</span>
-                  </button>
+                  <>
+                    <button
+                      onClick={downloadExtractedPdf}
+                      className="w-full py-3 px-4 rounded-2xl font-semibold text-sm shadow-md transition-all flex items-center justify-center gap-2
+                        bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer"
+                    >
+                      <Download className="w-4 h-4" />
+                      <span>Download Extracted PDF</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsPreviewOpen(true)}
+                      className="w-full py-2.5 px-3 rounded-xl border border-stone-200 dark:border-[#2a3243] text-stone-700 dark:text-zinc-300 hover:bg-stone-50 dark:hover:bg-[#1a202c] text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Eye className="w-3.5 h-3.5 text-purple-500" />
+                      <span>Compare Extracted with Original</span>
+                    </button>
+                  </>
                 )}
 
                 {mode === 'all' && allPagesBlobs && (
@@ -379,9 +392,34 @@ export const SplitPdfTool: React.FC<SplitPdfToolProps> = ({ onBack, onToast }) =
                 </button>
               </div>
             )}
+
+            {file && !isComplete && (
+              <button
+                type="button"
+                onClick={() => setIsPreviewOpen(true)}
+                className="w-full py-2.5 px-3 rounded-xl border border-stone-200 dark:border-[#2a3243] text-stone-700 dark:text-zinc-300 hover:bg-stone-50 dark:hover:bg-[#1a202c] text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Eye className="w-3.5 h-3.5 text-purple-500" />
+                <span>Preview Document Workspace</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
+
+      {/* Document Viewer Workspace Modal */}
+      {isPreviewOpen && file && (
+        <DocumentViewerWorkspace
+          file={extractedBlob || file}
+          fileName={file.name}
+          compareFile={extractedBlob ? file : null}
+          compareFileName="Original Document"
+          mode="modal"
+          onClose={() => setIsPreviewOpen(false)}
+          badgeLabel={extractedBlob ? 'Extracted' : `Range: ${rangeInput}`}
+          badgeColorClass={extractedBlob ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300'}
+        />
+      )}
     </div>
   );
 };

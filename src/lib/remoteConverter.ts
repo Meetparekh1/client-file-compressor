@@ -2,6 +2,7 @@ import { sanitizeFilename } from './utils';
 import { assertRemoteProcessingConsent } from './remoteConsent';
 import { TIMEOUT_REMOTE_MS, validateFileSize, MAX_FILE_SIZE_BYTES } from './securityLimits';
 import { sanitizeErrorMessage } from './errorParser';
+import { validateDocxBlob } from './docxValidator';
 
 /**
  * Validates that an API URL uses a permitted http or https protocol scheme.
@@ -39,6 +40,39 @@ export function setConverterApiUrl(url: string): void {
   }
 }
 
+export interface ConverterHealthDetails {
+  online: boolean;
+  service?: string;
+  engine?: string;
+  adobeConfigured?: boolean;
+}
+
+async function fetchWithFallback(endpoint: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(endpoint, init);
+  } catch (err) {
+    if (endpoint.includes('localhost:7860')) {
+      const alt = endpoint.replace('localhost:7860', '127.0.0.1:7860');
+      try {
+        return await fetch(alt, init);
+      } catch {}
+    } else if (endpoint.includes('127.0.0.1:7860')) {
+      const alt = endpoint.replace('127.0.0.1:7860', 'localhost:7860');
+      try {
+        return await fetch(alt, init);
+      } catch {}
+    }
+    if (typeof window !== 'undefined' && endpoint.startsWith('http')) {
+      try {
+        const parsed = new URL(endpoint);
+        const rel = parsed.pathname + parsed.search;
+        return await fetch(rel, init);
+      } catch {}
+    }
+    throw err;
+  }
+}
+
 export async function checkConverterHealth(apiUrl?: string): Promise<boolean> {
   const rawUrl = apiUrl || getConverterApiUrl();
   if (!isValidConverterApiUrl(rawUrl)) return false;
@@ -46,7 +80,7 @@ export async function checkConverterHealth(apiUrl?: string): Promise<boolean> {
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 4000);
-    const res = await fetch(`${baseUrl}/health`, {
+    const res = await fetchWithFallback(`${baseUrl}/health`, {
       method: 'GET',
       signal: controller.signal,
     });
@@ -54,6 +88,34 @@ export async function checkConverterHealth(apiUrl?: string): Promise<boolean> {
     return res.ok;
   } catch {
     return false;
+  }
+}
+
+export async function checkConverterHealthDetails(apiUrl?: string): Promise<ConverterHealthDetails> {
+  const rawUrl = apiUrl || getConverterApiUrl();
+  if (!isValidConverterApiUrl(rawUrl)) return { online: false };
+  const baseUrl = rawUrl.replace(/\/+$/, '');
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    const res = await fetchWithFallback(`${baseUrl}/health`, {
+      method: 'GET',
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    if (!res.ok) return { online: false };
+    if (typeof res.json === 'function') {
+      const data = await res.json();
+      return {
+        online: true,
+        service: data.service,
+        engine: data.engine,
+        adobeConfigured: Boolean(data.adobe_configured),
+      };
+    }
+    return { online: true };
+  } catch {
+    return { online: false };
   }
 }
 
@@ -99,7 +161,7 @@ export async function convertPdfToDocx(
   formData.append('file', file);
 
   if (options.onProgress) {
-    options.onProgress('Connecting to converter engine...');
+    options.onProgress('Connecting to Adobe PDF Services engine...');
   }
 
   const controller = new AbortController();
@@ -108,11 +170,19 @@ export async function convertPdfToDocx(
   try {
     timeoutId = setTimeout(() => controller.abort(), TIMEOUT_REMOTE_MS);
 
-    const response = await fetch(endpoint, {
+    if (options.onProgress) {
+      options.onProgress('Uploading document to Adobe for cloud processing...');
+    }
+
+    const response = await fetchWithFallback(endpoint, {
       method: 'POST',
       body: formData,
       signal: controller.signal,
     });
+
+    if (options.onProgress) {
+      options.onProgress('Processing with Adobe PDF Services API...');
+    }
 
     if (!response.ok) {
       let errorMessage = `Conversion failed with status ${response.status}`;
@@ -151,6 +221,15 @@ export async function convertPdfToDocx(
       throw new Error(`Converted response exceeds maximum allowed download size limit (${Math.round(MAX_FILE_SIZE_BYTES / (1024 * 1024))}MB).`);
     }
 
+    if (options.onProgress) {
+      options.onProgress('Validating generated Word package structure...');
+    }
+
+    const validation = await validateDocxBlob(blob);
+    if (!validation.valid) {
+      throw new Error(`Remote converter returned an invalid Word package: ${validation.error}`);
+    }
+
     return blob;
   } catch (err: unknown) {
     if (err instanceof DOMException && err.name === 'AbortError') {
@@ -160,7 +239,7 @@ export async function convertPdfToDocx(
     }
     if (err instanceof TypeError && err.message.includes('fetch')) {
       throw new Error(
-        `Unable to reach converter API at ${baseUrl}. Ensure your backend service is running (e.g. Docker locally or on Render) or update the API URL in Settings.`
+        `Unable to reach converter API at ${baseUrl}. Ensure your backend service is running or update the API URL in Settings.`
       );
     }
     throw err;
@@ -172,7 +251,7 @@ export async function convertPdfToDocx(
 }
 
 /**
- * Converts a Word (.docx/.doc) file to a PDF file via the REST API.
+ * Converts a Word (.docx/.doc) file to a PDF file via the REST API using Adobe PDF Services.
  */
 export async function convertDocxToPdf(
   file: File,
@@ -194,7 +273,7 @@ export async function convertDocxToPdf(
   formData.append('file', file);
 
   if (options.onProgress) {
-    options.onProgress('Connecting to LibreOffice PDF engine...');
+    options.onProgress('Connecting to Adobe PDF Services engine...');
   }
 
   const controller = new AbortController();
@@ -203,11 +282,19 @@ export async function convertDocxToPdf(
   try {
     timeoutId = setTimeout(() => controller.abort(), TIMEOUT_REMOTE_MS);
 
-    const response = await fetch(endpoint, {
+    if (options.onProgress) {
+      options.onProgress('Uploading Word document to Adobe for cloud processing...');
+    }
+
+    const response = await fetchWithFallback(endpoint, {
       method: 'POST',
       body: formData,
       signal: controller.signal,
     });
+
+    if (options.onProgress) {
+      options.onProgress('Generating PDF with Adobe PDF Services API...');
+    }
 
     if (!response.ok) {
       let errorMessage = `Conversion failed with status ${response.status}`;
@@ -245,6 +332,16 @@ export async function convertDocxToPdf(
       throw new Error(`Converted response exceeds maximum allowed download size limit (${Math.round(MAX_FILE_SIZE_BYTES / (1024 * 1024))}MB).`);
     }
 
+    if (options.onProgress) {
+      options.onProgress('Validating generated PDF header and structure...');
+    }
+
+    // Validate %PDF magic header
+    const headerSlice = await blob.slice(0, 5).text();
+    if (!headerSlice.startsWith('%PDF')) {
+      throw new Error('Remote converter returned an invalid PDF file (missing %PDF header).');
+    }
+
     return blob;
   } catch (err: unknown) {
     if (err instanceof DOMException && err.name === 'AbortError') {
@@ -254,7 +351,7 @@ export async function convertDocxToPdf(
     }
     if (err instanceof TypeError && err.message.includes('fetch')) {
       throw new Error(
-        `Unable to reach converter API at ${baseUrl}. Ensure your backend service is running (e.g. Docker locally or on Render) or update the API URL in Settings.`
+        `Unable to reach converter API at ${baseUrl}. Ensure your backend service is running or update the API URL in Settings.`
       );
     }
     throw err;

@@ -194,27 +194,25 @@ export const CompressionListView: React.FC<CompressionListViewProps> = ({
               )
             ) : (
               <>
+                <button
+                  onClick={() => onPreview(item)}
+                  className="p-1.5 rounded-lg transition cursor-pointer border
+                    border-transparent hover:border-slate-200 hover:bg-slate-100 text-slate-500 hover:text-slate-800
+                    dark:hover:bg-[#1c1f26] dark:text-zinc-400 dark:hover:text-zinc-200"
+                  title="Preview / Compare"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                </button>
                 {item.category === 'image' && (
-                  <>
-                    <button
-                      onClick={() => onPreview(item)}
-                      className="p-1.5 rounded-lg transition cursor-pointer border
-                        border-transparent hover:border-slate-200 hover:bg-slate-100 text-slate-500 hover:text-slate-800
-                        dark:hover:bg-[#1c1f26] dark:text-zinc-400 dark:hover:text-zinc-200"
-                      title="Compare visual quality"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => handleCopy(item)}
-                      className="p-1.5 rounded-lg transition cursor-pointer border
-                        border-transparent hover:border-slate-200 hover:bg-slate-100 text-slate-500 hover:text-slate-800
-                        dark:hover:bg-[#1c1f26] dark:text-zinc-400 dark:hover:text-zinc-200"
-                      title="Copy to clipboard"
-                    >
-                      {copiedId === item.id ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-                    </button>
-                  </>
+                  <button
+                    onClick={() => handleCopy(item)}
+                    className="p-1.5 rounded-lg transition cursor-pointer border
+                      border-transparent hover:border-slate-200 hover:bg-slate-100 text-slate-500 hover:text-slate-800
+                      dark:hover:bg-[#1c1f26] dark:text-zinc-400 dark:hover:text-zinc-200"
+                    title="Copy to clipboard"
+                  >
+                    {copiedId === item.id ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
                 )}
 
                 <button

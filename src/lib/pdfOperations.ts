@@ -132,34 +132,40 @@ export async function extractPdfPages(
     throw new Error('Please select at least one page to extract.');
   }
 
-  onProgress?.(20);
-  const arrayBuffer = await sourceFile.arrayBuffer();
-  const sourcePdf = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
-  const totalPages = sourcePdf.getPageCount();
-  validatePageCount(totalPages, MAX_PDF_PAGES, 'Extract PDF');
+  return withExecutionTimeout(
+    (async () => {
+      onProgress?.(20);
+      const arrayBuffer = await sourceFile.arrayBuffer();
+      const sourcePdf = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+      const totalPages = sourcePdf.getPageCount();
+      validatePageCount(totalPages, MAX_PDF_PAGES, 'Extract PDF');
 
-  const zeroBasedIndices = pagesToExtract
-    .filter(p => p >= 1 && p <= totalPages)
-    .map(p => p - 1);
+      const zeroBasedIndices = pagesToExtract
+        .filter(p => p >= 1 && p <= totalPages)
+        .map(p => p - 1);
 
-  if (zeroBasedIndices.length === 0) {
-    throw new Error('No valid pages found within document range.');
-  }
+      if (zeroBasedIndices.length === 0) {
+        throw new Error('No valid pages found within document range.');
+      }
 
-  onProgress?.(50);
-  const newPdf = await PDFDocument.create();
-  const copiedPages = await newPdf.copyPages(sourcePdf, zeroBasedIndices);
+      onProgress?.(50);
+      const newPdf = await PDFDocument.create();
+      const copiedPages = await newPdf.copyPages(sourcePdf, zeroBasedIndices);
 
-  for (const page of copiedPages) {
-    newPdf.addPage(page);
-  }
+      for (const page of copiedPages) {
+        newPdf.addPage(page);
+      }
 
-  onProgress?.(85);
-  const pdfBytes = await newPdf.save();
-  const blob = new Blob([pdfBytes as Uint8Array<ArrayBuffer>], { type: 'application/pdf' });
-  onProgress?.(100);
+      onProgress?.(85);
+      const pdfBytes = await newPdf.save();
+      const blob = new Blob([pdfBytes as Uint8Array<ArrayBuffer>], { type: 'application/pdf' });
+      onProgress?.(100);
 
-  return { blob, extractedPageCount: zeroBasedIndices.length };
+      return { blob, extractedPageCount: zeroBasedIndices.length };
+    })(),
+    TIMEOUT_GENERAL_MS,
+    'Extract PDF Pages'
+  );
 }
 
 /**
@@ -170,23 +176,30 @@ export async function splitPdfIntoSinglePages(
   onProgress?: (current: number, total: number) => void
 ): Promise<{ pageBlobs: { pageNumber: number; blob: Blob }[] }> {
   validateFileSize(sourceFile);
-  const arrayBuffer = await sourceFile.arrayBuffer();
-  const sourcePdf = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
-  const totalPages = sourcePdf.getPageCount();
-  validatePageCount(totalPages, MAX_PDF_PAGES, 'Split PDF');
-  const pageBlobs: { pageNumber: number; blob: Blob }[] = [];
 
-  for (let i = 0; i < totalPages; i++) {
-    onProgress?.(i + 1, totalPages);
-    const singlePdf = await PDFDocument.create();
-    const [copied] = await singlePdf.copyPages(sourcePdf, [i]);
-    singlePdf.addPage(copied);
-    const bytes = await singlePdf.save();
-    pageBlobs.push({
-      pageNumber: i + 1,
-      blob: new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'application/pdf' }),
-    });
-  }
+  return withExecutionTimeout(
+    (async () => {
+      const arrayBuffer = await sourceFile.arrayBuffer();
+      const sourcePdf = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+      const totalPages = sourcePdf.getPageCount();
+      validatePageCount(totalPages, MAX_PDF_PAGES, 'Split PDF');
+      const pageBlobs: { pageNumber: number; blob: Blob }[] = [];
 
-  return { pageBlobs };
+      for (let i = 0; i < totalPages; i++) {
+        onProgress?.(i + 1, totalPages);
+        const singlePdf = await PDFDocument.create();
+        const [copied] = await singlePdf.copyPages(sourcePdf, [i]);
+        singlePdf.addPage(copied);
+        const bytes = await singlePdf.save();
+        pageBlobs.push({
+          pageNumber: i + 1,
+          blob: new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'application/pdf' }),
+        });
+      }
+
+      return { pageBlobs };
+    })(),
+    TIMEOUT_GENERAL_MS,
+    'Split PDF'
+  );
 }

@@ -9,11 +9,14 @@ import {
   CheckCircle2, 
   Loader2, 
   ShieldCheck, 
-  FileCheck 
+  FileCheck,
+  Eye
 } from 'lucide-react';
 import { imagesToPdfDocument, type PageSizeFormat } from '../lib/scanAndSignEngines';
 import { formatBytes, sanitizeFilename } from '../lib/utils';
+import { validateFileSize } from '../lib/securityLimits';
 import { saveAs } from 'file-saver';
+import { DocumentViewerWorkspace } from './DocumentViewerWorkspace';
 
 interface ScanToPdfToolProps {
   onBack: () => void;
@@ -48,6 +51,7 @@ export const ScanToPdfTool: React.FC<ScanToPdfToolProps> = ({ onBack, onToast })
   const [progressMsg, setProgressMsg] = useState('');
   const [resultBlob, setResultBlob] = useState<Blob | null>(null);
   const [isComplete, setIsComplete] = useState(false);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   const handleFiles = (newFiles: FileList | null) => {
     if (!newFiles?.length) return;
@@ -57,7 +61,20 @@ export const ScanToPdfTool: React.FC<ScanToPdfToolProps> = ({ onBack, onToast })
       return;
     }
 
-    const items: ImageScanItem[] = valid.map(f => ({
+    const sized = valid.filter(f => {
+      try {
+        validateFileSize(f);
+        return true;
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : `${f.name} exceeds size limit.`;
+        onToast(msg, 'error');
+        return false;
+      }
+    });
+
+    if (sized.length === 0) return;
+
+    const items: ImageScanItem[] = sized.map(f => ({
       id: `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
       file: f,
       name: sanitizeFilename(f.name),
@@ -352,6 +369,15 @@ export const ScanToPdfTool: React.FC<ScanToPdfToolProps> = ({ onBack, onToast })
                 </button>
 
                 <button
+                  type="button"
+                  onClick={() => setIsPreviewOpen(true)}
+                  className="w-full py-2.5 px-3 rounded-xl border border-stone-200 dark:border-[#2a3243] text-stone-700 dark:text-zinc-300 hover:bg-stone-50 dark:hover:bg-[#1a202c] text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Eye className="w-3.5 h-3.5 text-teal-500" />
+                  <span>Preview Generated PDF Workspace</span>
+                </button>
+
+                <button
                   onClick={() => setIsComplete(false)}
                   className="w-full py-2 px-3 text-xs text-stone-500 dark:text-zinc-400 hover:text-stone-900 dark:hover:text-white cursor-pointer"
                 >
@@ -362,6 +388,18 @@ export const ScanToPdfTool: React.FC<ScanToPdfToolProps> = ({ onBack, onToast })
           </div>
         </div>
       </div>
+
+      {/* Document Viewer Workspace Modal */}
+      {isPreviewOpen && resultBlob && (
+        <DocumentViewerWorkspace
+          file={resultBlob}
+          fileName={outputFileName.endsWith('.pdf') ? outputFileName : `${outputFileName}.pdf`}
+          mode="modal"
+          onClose={() => setIsPreviewOpen(false)}
+          badgeLabel="Scanned PDF"
+          badgeColorClass="bg-teal-100 text-teal-700 dark:bg-teal-950 dark:text-teal-300"
+        />
+      )}
     </div>
   );
 };

@@ -172,32 +172,36 @@ describe('Priority 1 Engine Reliability & Tool Regression Suite', () => {
   });
 
   describe('5. src/lib/officeConverter.ts', () => {
-    it('convertPdfToDocx generates valid OpenXML ZIP package structure', async () => {
-      const mockPdf = {
-        numPages: 1,
-        getPage: vi.fn().mockResolvedValue({
-          getViewport: vi.fn().mockReturnValue({ width: 600, height: 800 }),
-          getTextContent: vi.fn().mockResolvedValue({
-            items: [
-              { str: 'Document Title', transform: [1, 0, 0, 1, 50, 750], height: 18 },
-              { str: 'This is paragraph text in the document.', transform: [1, 0, 0, 1, 50, 700], height: 12 },
-            ],
+    it('convertPdfToDocx generates valid OpenXML ZIP package structure via remote engine', async () => {
+      const zip = new JSZip();
+      zip.file('[Content_Types].xml', '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>');
+      zip.file('word/document.xml', '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body/></w:document>');
+      const validDocxBlob = await zip.generateAsync({
+        type: 'blob',
+        mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      });
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          status: 200,
+          headers: new Headers({
+            'content-type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
           }),
-        }),
-      };
-      vi.mocked(pdfjsLib.getDocument).mockReturnValue({
-        promise: Promise.resolve(mockPdf),
-      } as any);
+          blob: vi.fn().mockResolvedValue(validDocxBlob),
+        })
+      );
 
       const pdfFile = new File(['%PDF-1.4'], 'contract.pdf', { type: 'application/pdf' });
-
-      const docxBlob = await convertPdfToDocx(pdfFile);
+      const docxBlob = await convertPdfToDocx(pdfFile, { skipConsentCheck: true });
       expect(docxBlob.size).toBeGreaterThan(0);
       expect(docxBlob.type).toContain('wordprocessingml');
 
-      const zip = await JSZip.loadAsync(docxBlob);
-      expect(zip.file('[Content_Types].xml')).not.toBeNull();
-      expect(zip.file('word/document.xml')).not.toBeNull();
+      const loadedZip = await JSZip.loadAsync(docxBlob);
+      expect(loadedZip.file('[Content_Types].xml')).not.toBeNull();
+      expect(loadedZip.file('word/document.xml')).not.toBeNull();
+      vi.unstubAllGlobals();
     });
 
     it('convertPdfToXlsx rejects non-tabular PDFs with descriptive advice', async () => {

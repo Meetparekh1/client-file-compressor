@@ -9,7 +9,7 @@ interface NavbarProps {
   onOpenGuide: () => void;
   onOpenApiSettings?: () => void;
   theme: 'light' | 'dark';
-  onToggleTheme: () => void;
+  onToggleTheme: (event?: React.MouseEvent) => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({

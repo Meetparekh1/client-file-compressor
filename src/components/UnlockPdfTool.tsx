@@ -1,19 +1,11 @@
 import React, { useState, useRef } from 'react';
 import { ArrowLeft, Unlock, Download, ShieldCheck, UploadCloud, Loader2, AlertCircle } from 'lucide-react';
 import { PDFDocument } from 'pdf-lib';
-import * as pdfjsLib from 'pdfjs-dist';
+import { pdfjsLib } from '../lib/pdfjsClient';
 import { saveAs } from 'file-saver';
 import { formatBytes, sanitizeFilename } from '../lib/utils';
 import { validateFileSize } from '../lib/securityLimits';
 import type { ToastMessage } from './Toast';
-
-// Configure pdfjs worker if available in browser
-if (typeof window !== 'undefined' && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-    'pdfjs-dist/build/pdf.worker.min.mjs',
-    import.meta.url
-  ).toString();
-}
 
 interface UnlockPdfToolProps {
   onBack: () => void;

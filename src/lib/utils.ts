@@ -1,5 +1,6 @@
 import { saveAs } from 'file-saver';
 import { PDFDocument } from 'pdf-lib';
+import { MAX_MERGE_IMAGES_COUNT } from './securityLimits';
 
 export function formatBytes(bytes: number, decimals = 2): string {
   if (bytes === 0) return '0 Bytes';
@@ -168,8 +169,8 @@ async function renderBlobToCanvas(blob: Blob): Promise<{ canvas: HTMLCanvasEleme
  * Includes native GPU memory disposal and batch limits.
  */
 export async function mergeImagesToPdf(imageItems: { blob: Blob; name: string }[]): Promise<Blob> {
-  if (imageItems.length > 300) {
-    throw new Error('Too many images to merge in a single session (limit is 300 images).');
+  if (imageItems.length > MAX_MERGE_IMAGES_COUNT) {
+    throw new Error(`Too many images to merge in a single session (limit is ${MAX_MERGE_IMAGES_COUNT} images).`);
   }
 
   const pdfDoc = await PDFDocument.create();
